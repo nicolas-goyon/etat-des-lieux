@@ -14,23 +14,21 @@
   <script src="js/display.js"></script>
 </head>
 <body>
-  <div id="app" aria-live="polite"></div>
+  <div id="app" aria-live="polite"><p style="text-align:center;padding:3rem 1rem;color:#5f6b7a">Chargement…</p></div>
   <div id="modal-root"></div>
   <div id="toast" role="status"></div>
 
   <input type="file" id="photo-input" accept="image/*" multiple hidden>
   <input type="file" id="json-input" accept="application/json,.json" hidden>
 
-  <script src="config.js"></script>
   <script src="vendor/jspdf.umd.min.js"></script>
-  <script src="js/sha256.js"></script>
+  <script src="vendor/qrcode.js"></script>
   <script src="js/util.js"></script>
   <script src="js/templates.js"></script>
   <script src="js/store.js"></script>
-  <script src="js/github.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/sync.js"></script>
   <script src="js/pdf.js"></script>
-  <script src="vendor/peerjs.min.js"></script>
-  <script src="vendor/qrcode.js"></script>
   <script src="js/remote.js"></script>
   <script src="js/app.js"></script>
 </body>

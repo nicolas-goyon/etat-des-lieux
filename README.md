@@ -1,142 +1,139 @@
-# État des lieux – application web pour GitHub Pages
+# État des lieux – serveur local (Docker Desktop)
 
-Application 100 % statique (HTML / CSS / JavaScript, sans build) pour réaliser un **état des lieux d'entrée ou de sortie** d'un appartement, directement sur téléphone, tablette ou ordinateur.
+Application d'état des lieux (entrée / sortie) qui tourne **sur votre PC**, dans Docker. Le PC sert de serveur : vous l'utilisez directement, et une tablette ou un téléphone sur le même Wi-Fi s'y connectent avec un navigateur. **Rien ne passe par Internet** et toutes les données restent sur le PC.
+
+```
+  Tablette / PC tactile ──┐
+                          ├── Wi-Fi ──►  PC (Docker)  ──►  dossier data\  (dossiers, photos, PDF)
+  Téléphone (photos) ─────┘
+```
 
 ## Fonctionnalités
 
-- **Code d'accès** à l'ouverture (empreinte SHA-256, modifiable depuis l'application).
-- **Pièces en onglets** : Entrée, Séjour, Cuisine, Chambre, Salle de bain, WC par défaut. Chaque pièce peut être **renommée, déplacée, dupliquée, supprimée**, et vous pouvez en ajouter autant que nécessaire (modèles : chambre, cuisine, salle de bain, WC, bureau, couloir, cave, balcon, parking, pièce vide…).
-- Pour chaque pièce, deux listes :
-  - **Éléments de la pièce** : sol, plafond, murs, plinthes, portes, fenêtres/volets, prises, éclairage, chauffage…
-  - **Meubles & équipements** : électroménager, mobilier (pré-rempli si « logement meublé »).
-- Pour chaque ligne : **état** (Neuf / Bon état / État d'usage / Mauvais état), **fonctionne** (Oui / Non / N/A), **remarques**, **photos multiples**. Ajoutez vos propres lignes, renommez-les, réordonnez-les, supprimez-les.
-- **Compteurs** électricité (HP/HC), gaz, eau froide, eau chaude : numéro, relevés (index multiples), remarques, photos. Compteurs ajoutables/supprimables.
-- **Clés remises**, **remarques générales**, **remarques par pièce**.
-- **Téléphone comme appareil photo** pour le PC ou la tablette : jumelage par QR code, puis chaque prise de photo est déclenchée sur le téléphone et la photo arrive directement sur la bonne ligne.
-- **Export PDF** complet (tableaux par pièce, états en couleur, photos, compteurs).
-- **Enregistrement automatique sur l'appareil** (IndexedDB) et **enregistrement sur GitHub** : les dossiers (JSON + photos) sont commités dans le dossier `data/` du dépôt qui héberge le site. Un autre appareil peut ensuite **charger le dossier depuis GitHub**.
-- **Export / import JSON** (sauvegarde complète, photos incluses).
-- Fonctionne **hors connexion** (PWA avec service worker) : utile dans un appartement sans réseau ; l'envoi sur GitHub se fait ensuite.
+- **Code d'accès** vérifié par le serveur (code initial dans `.env`, modifiable ensuite dans l'application).
+- **Pièces en onglets**, modifiables : renommer, déplacer, dupliquer, supprimer, ajouter (modèles : chambre, cuisine, salle de bain, WC, bureau, cave, balcon, parking, pièce vide…).
+- Pour chaque pièce : **éléments** (sol, plafond, murs, plinthes, portes, fenêtres, prises, éclairage, chauffage…) et **meubles & équipements**. Chaque ligne a un **état**, un champ **fonctionne oui/non**, des **remarques** et **plusieurs photos**. Vous pouvez ajouter vos propres lignes.
+- **Compteurs** électricité (HP/HC), gaz, eau froide et eau chaude : numéro, relevés, remarques et photos.
+- **Clés remises**, remarques générales, remarques par pièce.
+- **Export PDF** : le PDF est téléchargé et une copie est **archivée sur le PC**.
+- **Téléphone comme appareil photo** pour le PC ou la tablette, après jumelage par QR code.
+- **Affichage** au choix : téléphone, tablette verticale, tablette horizontale / PC tactile, PC souris. On peut aussi agrandir le texte.
+- **Enregistrement automatique** sur le PC. Si le Wi-Fi coupe, la saisie est gardée sur l'appareil et envoyée dès que la connexion revient.
+- Plusieurs appareils peuvent ouvrir le même dossier. Si deux appareils le modifient en même temps, l'application le détecte et vous fait choisir la version à garder.
 
-## Affichage : téléphone, tablette, PC tactile
+## Installation (une seule fois)
 
-Le bouton **Affichage** (icône écran + tablette, en haut à droite, présent aussi sur l'écran de connexion et dans ⋮ / Paramètres) permet de choisir :
+1. Installez **Docker Desktop** pour Windows : https://www.docker.com/products/docker-desktop/ (choisissez le moteur WSL 2, proposé par défaut).
+2. Dans Docker Desktop, ouvrez **Settings → General** et cochez **« Start Docker Desktop when you sign in to your computer »**. C'est ce réglage qui relance automatiquement l'application après un redémarrage du PC.
+3. Décompressez ce dossier à un endroit stable, par exemple `C:\EtatDesLieux`. Évitez un dossier OneDrive, dont la synchronisation pourrait gêner l'écriture des données.
+4. Ouvrez le fichier **`.env`** avec le Bloc-notes et remplacez **`ACCESS_CODE=1234`** par votre propre code.
+5. Double-cliquez sur **`demarrer.bat`**. Le script :
+   - lance Docker Desktop s'il ne tourne pas ;
+   - détecte l'adresse IP du PC sur le Wi-Fi, pour le QR code du téléphone ;
+   - construit et démarre le serveur (la première fois prend 1 à 2 minutes) ;
+   - affiche les adresses et ouvre le navigateur sur **http://localhost:8080**.
 
-| Mode | Mise en page |
-|---|---|
-| **Automatique** (par défaut) | Choisit selon la taille de l'écran, l'orientation et la présence d'un écran tactile ; bascule tout seul quand on tourne la tablette. |
-| **Téléphone** | Une colonne, onglets de pièces défilants en haut, fenêtres qui montent du bas de l'écran. |
-| **Tablette verticale** | Une colonne large ; chaque ligne est organisée en 2 zones (état + remarques à gauche, fonctionnement + photos à droite). |
-| **Tablette horizontale / PC tactile** | Pièces dans une barre latérale à gauche (avec la progression « 3/18 lignes renseignées »), lignes sur 2 colonnes, grandes zones tactiles. |
-| **PC (souris)** | Même disposition, plus compacte. |
+Si Windows demande l'autorisation réseau pour Docker, acceptez-la pour les **réseaux privés**.
 
-On peut aussi régler la **taille du texte** (Normal / Grand / Très grand) : toute l'interface s'agrandit. Le choix est mémorisé sur l'appareil.
+## Utilisation au quotidien
 
-En mode tactile, tous les boutons font au moins 48 px, les champs ont une police de 16 px minimum (pas de zoom automatique sur iPhone/iPad), et les photos se font défiler d'un balayage du doigt.
+- **Sur le PC** : http://localhost:8080
+- **Sur la tablette** : l'adresse affichée par `demarrer.bat`, du type `http://192.168.1.20:8080`. La tablette doit être sur le même Wi-Fi que le PC. Ajoutez la page à l'écran d'accueil pour l'ouvrir comme une application.
+- Après un redémarrage du PC, l'application redémarre toute seule avec Docker Desktop. Relancez `demarrer.bat` seulement si vous changez de réseau Wi-Fi, car l'adresse du PC change aussi.
+- **`arreter.bat`** arrête le serveur. Les données sont conservées.
 
-## Téléphone comme appareil photo (PC / tablette)
+### Dans un logement sans Wi-Fi
 
-Pratique quand on remplit l'état des lieux sur un PC tactile ou une tablette mais que le téléphone prend de meilleures photos.
+Activez le **partage de connexion** du téléphone, puis connectez-y le PC (et la tablette si vous en utilisez une). Lancez ensuite `demarrer.bat`, qui détecte la nouvelle adresse du PC. Les échanges restent locaux et ne consomment presque pas de données mobiles.
+
+### Téléphone comme appareil photo
 
 1. Dans un dossier, touchez **📱 Téléphone** en haut de l'écran : un QR code s'affiche.
-2. Scannez-le avec l'appareil photo du téléphone et ouvrez le lien : la page **« Appareil photo »** s'ouvre sur le téléphone (aucun code d'accès à saisir, le QR code contient une clé propre à la session). Le bouton devient vert : **Téléphone connecté**.
-3. Sur le PC / la tablette, touchez **📷 Photos** sur une ligne ou un compteur : le téléphone vibre et affiche « Photo demandée pour Séjour › Sol » avec un grand bouton **Prendre une photo** (ou **Choisir dans la galerie**). On peut en prendre plusieurs à la suite ; chacune arrive aussitôt sur la ligne du PC.
-4. **Terminé pour cette ligne** (sur le téléphone) ou **Terminer** (sur le PC) clôt la demande. **Utiliser cet appareil** reprend l'appareil photo / les fichiers du PC.
-5. Pour arrêter : **📱 → Déconnecter le téléphone**. Si le téléphone se met en veille ou recharge la page, il se reconnecte tout seul.
+2. Le téléphone, connecté au **même Wi-Fi**, scanne le QR code et ouvre la page **« Appareil photo »**. Aucun code d'accès n'est demandé : le QR code contient une clé propre à cette session, qui permet seulement d'envoyer des photos.
+3. Touchez **📷 Photos** sur une ligne du PC ou de la tablette. Le téléphone vibre et affiche « Photo demandée pour Séjour › Sol ». Prenez une ou plusieurs photos : elles arrivent directement sur la bonne ligne.
+4. Pour finir, touchez **Terminé** sur le téléphone ou **Terminer** sur le PC. **Utiliser cet appareil** reprend l'appareil photo ou les fichiers du PC.
 
-Points à connaître :
-- Les deux appareils doivent avoir **accès à Internet** (Wi-Fi ou 4G/5G, pas forcément le même réseau).
-- Les photos passent **directement d'un appareil à l'autre** (WebRTC, chiffré) ; elles ne sont stockées sur aucun serveur. La mise en relation passe par le serveur public gratuit PeerJS (`0.peerjs.com`) ; vous pouvez héberger le vôtre et le déclarer dans `config.js` (`PEER_SERVER`).
-- Le QR code ne fonctionne qu'avec l'adresse publique de l'application (GitHub Pages), pas avec une adresse locale du type `localhost`.
-- Sur la page du téléphone, l'écran est maintenu allumé quand le navigateur le permet.
+Si le téléphone n'arrive pas à ouvrir le lien, l'adresse du PC est sans doute mauvaise. Corrigez-la avec « Modifier l'adresse du PC » dans la fenêtre du QR code, ou relancez `demarrer.bat`.
 
-## Déploiement sur GitHub Pages (5 minutes)
+## Données et sauvegardes
 
-1. Créez un dépôt GitHub (par ex. `etat-des-lieux`). **Recommandé : dépôt privé** (voir « Confidentialité » plus bas).
-2. Copiez **tout le contenu** de ce zip à la racine du dépôt (y compris `.nojekyll` et le dossier `data/`), puis commitez sur la branche `main`.
-3. Dans le dépôt : **Settings → Pages → Build and deployment → Source : Deploy from a branch**, branche `main`, dossier `/ (root)`. Enregistrez.
-4. Après 1 à 2 minutes, le site est disponible sur `https://<votre-compte>.github.io/<nom-du-depot>/`.
-5. Ouvrez-le, entrez le code d'accès par défaut **`1234`**, puis **changez-le immédiatement** (voir ci-dessous).
-
-> Sur téléphone, ajoutez le site à l'écran d'accueil (« Ajouter à l'écran d'accueil ») : il s'ouvre alors comme une application, plein écran et utilisable hors ligne.
-
-## Changer le code d'accès
-
-Le code n'est jamais stocké en clair : `config.js` contient son empreinte SHA-256.
-
-- Dans l'application : **⋮ → Paramètres → Code d'accès**. Le nouveau code s'applique tout de suite sur l'appareil, et l'application affiche la ligne `ACCESS_CODE_HASH: "…"` à placer dans `config.js`.
-  - Si la synchronisation GitHub est configurée, un bouton **« Mettre à jour config.js sur GitHub »** le fait pour vous (le site se republie en 1 à 2 minutes et le nouveau code vaut alors pour tous les appareils).
-  - Sinon, modifiez `config.js` à la main dans le dépôt.
-- En ligne de commande : `printf '%s' 'moncode' | sha256sum` donne l'empreinte à coller dans `config.js`.
-
-## Activer l'enregistrement sur GitHub
-
-L'application écrit dans le dépôt grâce à l'API GitHub, avec un jeton que **vous** créez et qui reste **uniquement dans le navigateur** (localStorage). Il n'est jamais commité.
-
-1. GitHub → photo de profil → **Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate new token**.
-2. *Repository access* : **Only select repositories** → choisissez le dépôt du site.
-3. *Permissions → Repository permissions* : **Contents : Read and write** (rien d'autre n'est nécessaire). Choisissez une durée d'expiration.
-4. Copiez le jeton (`github_pat_…`).
-5. Dans l'application : **⋮ → Paramètres → Synchronisation GitHub** : propriétaire, dépôt (pré-remplis automatiquement sur GitHub Pages), branche (`main`) et jeton. Cliquez **Tester**, puis **Enregistrer**.
-
-Ensuite, le bouton **☁ GitHub** (ou ⋮ → Enregistrer sur GitHub) commite le dossier courant :
+Toutes les données sont dans le dossier **`data`**, à côté de `docker-compose.yml`. Le chemin se change avec `DATA_PATH` dans `.env`. Ce dossier est monté dans le conteneur : il survit à l'arrêt du conteneur, de Docker et au redémarrage du PC.
 
 ```
-data/index.json                      ← liste des dossiers
-data/dossiers/<id>.json              ← le dossier (références vers les photos)
-data/photos/<id>/<photo>.jpg         ← les photos (JPEG ≤ 1600 px)
+data\
+  dossiers\<id>\dossier.json          le dossier (texte, états, remarques…)
+  dossiers\<id>\photos\*.jpg          les photos (et leurs vignettes *_t.jpg)
+  dossiers\<id>\pdf\*.pdf             les PDF générés
+  dossiers\<id>\historique\rev-*.json les 10 versions précédentes (filet de sécurité)
+  corbeille\                          les dossiers supprimés, gardés 30 jours
+  auth.json, secret.key               le code d'accès (chiffré) et la clé des sessions
 ```
 
-Chaque enregistrement = **un seul commit** (les photos déjà envoyées ne sont pas renvoyées). Sur un autre appareil, **Charger depuis GitHub** (écran d'accueil) liste les dossiers du dépôt et les télécharge, photos comprises. Sans jeton, cette lecture passe par le site GitHub Pages lui-même (une fois le site republié après le commit) ; avec un jeton, elle est immédiate et fonctionne aussi pour un dépôt privé.
+- **`sauvegarder.bat`** crée `backups\edl-AAAAMMJJ-HHMM.zip`, une copie complète du dossier `data`. Copiez-la régulièrement sur une clé USB ou un disque externe.
+- Pour **restaurer** une sauvegarde : lancez `arreter.bat`, remplacez le contenu de `data` par celui du zip, puis lancez `demarrer.bat`.
+- Depuis l'application : **⋮ → Exporter en JSON** produit un fichier autonome, photos comprises. Il se réimporte avec « Importer un JSON » sur l'accueil.
 
-Pour supprimer un dossier du dépôt : supprimez `data/dossiers/<id>.json`, le dossier `data/photos/<id>/` et l'entrée correspondante dans `data/index.json` (ou laissez-les : ils n'encombrent que le dépôt).
+## Fichier `.env`
 
-## Confidentialité et sécurité – à lire
+| Variable | Rôle | Défaut |
+|---|---|---|
+| `ACCESS_CODE` | Code d'accès initial (4 caractères minimum). Si vous le **modifiez ici**, il redevient le code valable au démarrage suivant, ce qui sert en cas d'oubli. | `1234` |
+| `APP_TITLE` | Nom affiché | `État des lieux` |
+| `PORT` | Port du PC | `8080` |
+| `PUBLIC_URL` | Adresse du PC sur le Wi-Fi, utilisée par le QR code. Laissez vide : `demarrer.bat` la détecte. | *(vide)* |
+| `DATA_PATH` | Dossier des données sur le PC | `./data` |
+| `SESSION_DAYS` | Durée de « Rester connecté » | `30` |
+| `LOGIN_MAX_ATTEMPTS` / `LOGIN_LOCK_MINUTES` | Nombre d'essais de code autorisés, puis durée du blocage | `8` / `15` |
+| `TRASH_DAYS` | Durée de conservation dans la corbeille | `30` |
+| `HISTORY_KEEP` | Nombre de versions gardées par dossier | `10` |
+| `MAX_UPLOAD_MB` | Taille maximale d'une photo | `25` |
+| `HTTPS` | `true` = chiffrement du Wi-Fi local avec un certificat auto-signé (voir plus bas) | `false` |
+| `TZ` | Fuseau horaire des journaux | `Europe/Paris` |
 
-- Le code d'accès est une protection **côté client** : il empêche une utilisation accidentelle ou par un curieux, mais quiconque a accès au dépôt (ou à son contenu publié) peut lire le code source et, si le dépôt est **public**, le dossier `data/` (adresses, photos de l'appartement) est **public aussi**.
-- Pour des données réelles, utilisez un **dépôt privé**. GitHub Pages sur un dépôt privé nécessite un abonnement GitHub Pro/Team ; à défaut, vous pouvez garder l'application sur un dépôt public mais **ne pas utiliser l'enregistrement GitHub** (les dossiers restent sur l'appareil + export JSON/PDF), ou pointer la synchronisation vers un **second dépôt privé** (Paramètres → owner/repo), ce qui est possible même si le site est hébergé sur un dépôt public.
-- Le jeton d'accès donne le droit d'écrire dans le dépôt choisi : ne le partagez pas, limitez-le à ce dépôt, donnez-lui une date d'expiration et révoquez-le en cas de doute. Il est stocké dans le navigateur ; « Se déconnecter » ne l'efface pas (effacez les données du site pour cela).
+Après toute modification de `.env`, relancez `demarrer.bat`.
 
-## Utilisation quotidienne
+## Sécurité
 
-- **Nouvel état des lieux** : type (entrée/sortie), adresse, date, logement meublé ou non → les pièces et lignes types sont créées.
-- Tout est **enregistré automatiquement sur l'appareil** à chaque saisie (indicateur en bas à gauche).
-- **Photos** : bouton 📷 sur chaque ligne ou compteur ; plusieurs photos à la fois, directement depuis l'appareil photo ou la galerie. Touchez une vignette pour l'agrandir, naviguer ou la supprimer. Les photos sont réduites à 1600 px pour rester légères.
-- **Tout « Bon état »** : dans une pièce, met « Bon état » sur toutes les lignes qui n'ont pas encore d'état, pour aller vite ; corrigez ensuite les exceptions.
-- **PDF** : bouton 📄 PDF (bas de l'écran). **JSON** : ⋮ → Exporter en JSON ; réimportable depuis l'accueil (« Importer un JSON »), par exemple pour transférer un dossier d'un appareil à l'autre sans GitHub.
-- **Dupliquer un dossier** : pratique pour préparer l'état des lieux de sortie à partir de celui d'entrée (⋮ → Dupliquer).
+- Le code d'accès est vérifié **par le serveur**. Il est stocké haché (scrypt) et n'est jamais envoyé aux navigateurs.
+- Les sessions passent par un cookie protégé (HttpOnly, SameSite=Strict, signé). Changer le code déconnecte tous les autres appareils.
+- Après 8 codes faux, l'adresse concernée est bloquée 15 minutes.
+- Le serveur ajoute une protection contre les requêtes venant d'autres sites (CSRF) et des en-têtes de sécurité stricts (CSP, anti-iframe…).
+- Les photos et les dossiers ne sont accessibles qu'après connexion.
+- L'application est faite pour le **réseau local**. **N'ouvrez pas le port 8080 sur Internet** (pas de redirection de port sur la box).
+- **`HTTPS=true`** chiffre aussi les échanges sur le Wi-Fi. Le certificat est auto-signé : chaque appareil affiche une fois un avertissement à accepter (« Paramètres avancés → Continuer »). Pour le Wi-Fi de la maison, `false` est en général suffisant. Pour un Wi-Fi partagé ou public, préférez `true`.
 
-## Personnalisation
+## Commandes utiles
 
-- `config.js` : titre, empreinte du code, dossier de données, serveur de mise en relation du téléphone.
-- `js/templates.js` : lignes par défaut (`ELEMENTS_BASE`), pièces types (`TYPES_PIECE` : éléments, équipements, meubles), compteurs et clés par défaut, pièces créées pour un nouveau dossier (`PIECES_DEFAUT`).
-- `css/style.css` : couleurs (`:root`).
-- Après toute modification des fichiers de l'application, incrémentez `CACHE` dans `sw.js` (ex. `edl-v1.2.1`) pour que les appareils ayant déjà installé l'application récupèrent la nouvelle version.
-
-## Structure
+Ouvrez un terminal dans le dossier de l'application :
 
 ```
-index.html              page unique
-config.js               configuration (titre, code d'accès, dossier de données)
-manifest.webmanifest    PWA
-sw.js                   service worker (hors ligne)
-css/style.css
-js/app.js               interface et logique
-js/display.js           mode d'affichage (auto / téléphone / tablette / PC) et taille du texte
-js/remote.js            téléphone comme appareil photo (QR code, liaison PeerJS)
-js/templates.js         modèles de pièces, lignes, compteurs
-js/store.js             stockage local (IndexedDB)
-js/github.js            enregistrement / chargement GitHub (API REST)
-js/pdf.js               génération du PDF
-js/util.js, js/sha256.js
-vendor/jspdf.umd.min.js bibliothèque PDF (licence MIT, voir vendor/jspdf.LICENSE)
-vendor/peerjs.min.js    liaison directe entre appareils (licence MIT, voir vendor/peerjs.LICENSE)
-vendor/qrcode.js        générateur de QR code (licence MIT, Kazuhiko Arase)
-icons/                  icônes de l'application
-data/                   dossiers enregistrés par l'application (créé vide)
-.nojekyll               désactive Jekyll sur GitHub Pages
+docker compose ps              état du serveur
+docker compose logs -f         journaux en direct
+docker compose restart         redémarrage
+docker compose up -d --build   reconstruit après une mise à jour des fichiers
 ```
 
-## Compatibilité
+**Mettre à jour l'application** : remplacez tous les fichiers **sauf `.env` et `data`**, puis lancez `demarrer.bat`.
 
-Navigateurs récents (Chrome, Edge, Firefox, Safari iOS 15+ / macOS). Aucune dépendance en ligne : tout est servi depuis le dépôt ; seules la synchronisation (`api.github.com`) et la mise en relation avec le téléphone (`0.peerjs.com`) sortent du site.
+## Dépannage
+
+| Problème | Solution |
+|---|---|
+| `demarrer.bat` indique que Docker ne répond pas | Ouvrez Docker Desktop, attendez « Engine running », puis relancez le script. |
+| La tablette ou le téléphone n'arrive pas à se connecter | Vérifiez que les appareils sont sur le même Wi-Fi. Mettez le Wi-Fi du PC en profil **Réseau privé** (Paramètres → Réseau et Internet → Wi-Fi → propriétés). Autorisez Docker Desktop dans le pare-feu Windows. Certaines box isolent les appareils sur le Wi-Fi invité : utilisez le Wi-Fi principal. |
+| Le QR code contient une mauvaise adresse | Relancez `demarrer.bat`, ou utilisez « Modifier l'adresse du PC » dans la fenêtre du QR code. |
+| Code d'accès oublié | Mettez un nouveau `ACCESS_CODE` dans `.env` et relancez `demarrer.bat`. |
+| « Conflit de modifications » | Le même dossier a été modifié sur deux appareils. Choisissez la version à garder. Les versions précédentes restent dans `data\dossiers\<id>\historique`. |
+| Le port 8080 est déjà utilisé | Changez `PORT` dans `.env` (par exemple 8090) et relancez. |
+
+## Contenu
+
+```
+demarrer.bat / arreter.bat / sauvegarder.bat   scripts Windows (double-clic)
+scripts\*.ps1                                  leur contenu (PowerShell)
+.env / .env.example                            configuration
+docker-compose.yml, Dockerfile                 déploiement Docker
+server\server.js                               serveur Node.js (sans dépendance externe)
+public\                                        application web (HTML / CSS / JS)
+public\vendor\                                 jsPDF (MIT) et générateur de QR code (MIT, Kazuhiko Arase)
+```

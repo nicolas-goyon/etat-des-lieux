@@ -132,7 +132,7 @@
     return btoa(bin);
   };
 
-  /* Blob → dataURL avec un type MIME fiable déduit de l'extension (l'API GitHub
+  /* Blob → dataURL avec un type MIME fiable déduit de l'extension (certains serveurs
      renvoie un Content-Type générique). */
   U.blobToDataUrlAs = async (blob, pathOrName) => {
     const ext = String(pathOrName || '').split('.').pop().toLowerCase();

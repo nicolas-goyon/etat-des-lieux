@@ -1,0 +1,8 @@
+data
+backups
+scripts
+*.bat
+.env
+.env.example
+README.md
+docker-compose.yml

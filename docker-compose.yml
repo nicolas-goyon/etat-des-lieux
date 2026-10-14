@@ -1,0 +1,37 @@
+# État des lieux – déploiement local (Docker Desktop)
+#   Démarrer :  demarrer.bat   (ou : docker compose up -d --build)
+#   Arrêter  :  arreter.bat    (ou : docker compose down)
+# Toutes les données (dossiers, photos, PDF, code d'accès) sont dans le dossier
+# indiqué par DATA_PATH (./data par défaut) : elles sont conservées entre les
+# redémarrages du conteneur, de Docker et du PC.
+name: etat-des-lieux
+
+services:
+  app:
+    build: .
+    image: etat-des-lieux:2.0.0
+    container_name: etat-des-lieux
+    # Redémarre automatiquement avec Docker Desktop (donc après un redémarrage du PC,
+    # si Docker Desktop est réglé pour se lancer à l'ouverture de session).
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # PUBLIC_URL peut être fourni par demarrer.bat (adresse IP du PC détectée automatiquement)
+      PUBLIC_URL: ${PUBLIC_URL:-}
+      TZ: ${TZ:-Europe/Paris}
+    ports:
+      - "${PORT:-8080}:8080"
+    volumes:
+      # Dossier de données sur le PC (visible dans l'Explorateur, facile à sauvegarder)
+      - ${DATA_PATH:-./data}:/data
+      # Variante : volume nommé géré par Docker (moins visible). Pour l'utiliser,
+      # remplacez la ligne ci-dessus par  « - edl-data:/data »  et décommentez la section volumes en bas.
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "3"
+
+# volumes:
+#   edl-data:

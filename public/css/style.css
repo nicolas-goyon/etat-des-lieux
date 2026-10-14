@@ -495,3 +495,21 @@ body.phone-remote { background: #eef2f7; }
 .rp-thumb.ok { border-color: var(--bon); } .rp-thumb.ok span { background: var(--bon); }
 .rp-thumb.err { border-color: var(--mauvais); } .rp-thumb.err span { background: var(--mauvais); }
 .btn.rp-done { min-height: 3.25rem; margin-top: .5rem; }
+
+/* =====================================================================
+   Version serveur (PC) : état d'enregistrement, photos en attente
+   ===================================================================== */
+button.save-state { border: 0; background: transparent; padding: 0; font: inherit; text-align: left; cursor: pointer; min-height: var(--tap-sm); min-width: 0; flex: 1 1 auto; }
+.ss { font-size: .78rem; color: var(--muted); }
+.ss-ok { color: var(--ok); font-weight: 600; }
+.ss-saving { color: var(--primary); }
+.ss-off { color: #9a5c00; font-weight: 600; }
+.banner { border-radius: var(--radius); padding: .65rem .8rem; margin: 0 0 .75rem; font-size: .88rem; }
+.banner.warn { background: #fff4e0; color: #7a4a00; border: 1px solid #f3d29c; }
+.thumb { position: relative; }
+.thumb.pending::after {
+  content: "⟳"; position: absolute; right: .2rem; bottom: .2rem; width: 1.2rem; height: 1.2rem; border-radius: 50%;
+  background: #f0b429; color: #3d2a00; font-size: .75rem; font-weight: 700; display: flex; align-items: center; justify-content: center;
+}
+.linkish { background: none; border: 0; color: var(--primary); text-decoration: underline; cursor: pointer; font: inherit; padding: .4rem; min-height: var(--tap-sm); }
+.remote-base .input { font-size: max(16px, 1rem); }

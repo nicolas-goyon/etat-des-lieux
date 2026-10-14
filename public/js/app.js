@@ -2,9 +2,8 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '1.2.0';
+  const APP_VERSION = '2.0.0';
   const T = window.EDL_TEMPLATES;
-  const CFG = window.EDL_CONFIG || {};
   const $ = sel => document.querySelector(sel);
   const root = () => document.getElementById('app');
 
@@ -14,26 +13,32 @@
     dossier: null,
     tab: 'general',
     photoTarget: null,
-    saveState: ''
+    saveState: '',
+    title: 'État des lieux',
+    publicUrl: null,
+    defaultCode: false,
+    offline: false
   };
 
   // =====================================================================
-  //  Authentification (code d'accès, empreinte SHA-256)
+  //  Authentification (code d'accès vérifié par le serveur)
   // =====================================================================
-  function expectedHash() {
-    return (U.local.get('edl.codeHash') || CFG.ACCESS_CODE_HASH || '').toLowerCase();
-  }
-  function checkAuth() {
-    if (!expectedHash()) return true; // aucun code configuré
-    return U.session.get('edl.auth') === '1' || U.local.get('edl.auth') === expectedHash();
-  }
-  function logout() {
-    U.session.remove('edl.auth');
-    U.local.remove('edl.auth');
+  async function logout() {
+    await API.post('/api/logout').catch(() => {});
     App.authed = false;
     App.dossier = null;
+    Sync.current = null;
     Modal.closeAll();
     render();
+  }
+
+  /* Session expirée (code changé, redémarrage…) : on affiche la connexion sans perdre le dossier en cours. */
+  function onUnauthorized() {
+    if (!App.authed) return;
+    App.authed = false;
+    Modal.closeAll();
+    render();
+    U.toast('Session expirée : entrez à nouveau le code d\'accès.', 4000);
   }
 
   // =====================================================================
@@ -102,7 +107,7 @@
   // =====================================================================
   //  Vues
   // =====================================================================
-  function appTitle() { return CFG.APP_TITLE || 'État des lieux'; }
+  function appTitle() { return App.title || 'État des lieux'; }
 
   const ICON_DISPLAY = '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="14" height="11" rx="1.5"/><rect x="17" y="8" width="5" height="11" rx="1.2"/><path d="M6 19h6M9 15v4"/></svg>';
   function displayBtn(extra) {
@@ -167,9 +172,9 @@
   }
 
   function syncBadge(d) {
-    if (d.lastSync && !d.dirty) return `<span class="badge ok">GitHub ✓</span>`;
-    if (d.lastSync && d.dirty) return `<span class="badge warn">modifié</span>`;
-    return `<span class="badge">local</span>`;
+    if (d.dirty) return `<span class="badge warn" title="Modifications pas encore enregistrées sur le PC">⟳ à envoyer</span>`;
+    if (d.onServer) return `<span class="badge ok" title="Enregistré sur le PC">✓ PC</span>`;
+    return `<span class="badge">sur l'appareil</span>`;
   }
 
   function homeView() {
@@ -182,9 +187,10 @@
 </header>
 <main class="content">
   <div class="actions-row"><button class="btn primary block" data-action="new-dossier">+ Nouvel état des lieux</button></div>
+  ${App.offline ? `<p class="banner warn">⚠ Serveur injoignable : seuls les dossiers déjà ouverts sur cet appareil sont affichés. Vérifiez le Wi-Fi et que le PC est allumé.</p>` : ''}
   <div class="actions-row two">
     <button class="btn" data-action="import-json">Importer un JSON</button>
-    <button class="btn" data-action="load-github">Charger depuis GitHub</button>
+    <button class="btn" data-action="refresh">⟳ Actualiser</button>
   </div>
   ${list.length ? `<ul class="dossier-list">${list.map(d => `
     <li class="dossier-item" data-action="open-dossier" data-id="${U.esc(d.id)}">
@@ -215,10 +221,9 @@
 </nav>
 <main class="content" id="tab-content">${tabContent()}</main>
 <footer class="bottombar">
-  <span class="save-state" id="save-state">${U.esc(App.saveState)}</span>
+  <button class="save-state" id="save-state" data-action="sync-now" title="Toucher pour enregistrer maintenant">${syncStateHtml()}</button>
   <div class="bb-actions">
-    <button class="btn small" data-action="export-pdf">📄 PDF</button>
-    <button class="btn small primary" data-action="github-save">☁ GitHub</button>
+    <button class="btn small primary" data-action="export-pdf">📄 PDF</button>
   </div>
 </footer>`;
   }
@@ -270,10 +275,17 @@
 </div>`;
   }
 
+  /* Source d'affichage d'une photo : cache local, sinon le PC (serveur). */
+  function photoSrc(p, thumb) {
+    if (thumb && p.thumb) return p.thumb;
+    if (p.dataUrl) return p.dataUrl;
+    return App.dossier ? API.photoUrl(App.dossier.id, p.id, thumb) : '';
+  }
+
   function photosHtml(photos) {
     return `<div class="photos">${(photos || []).map((p, i) => `
-      <button type="button" class="thumb" data-action="view-photo" data-index="${i}" title="Voir la photo">
-        ${p.thumb || p.dataUrl ? `<img src="${p.thumb || p.dataUrl}" alt="photo ${i + 1}" loading="lazy">` : '<span class="muted small">non chargée</span>'}</button>`).join('')}
+      <button type="button" class="thumb ${p.up ? '' : 'pending'}" data-action="view-photo" data-index="${i}" data-pid="${U.esc(p.id)}" title="${p.up ? 'Voir la photo' : 'Voir la photo (pas encore envoyée au PC)'}">
+        <img src="${U.esc(photoSrc(p, true))}" alt="photo ${i + 1}" loading="lazy"></button>`).join('')}
       <button type="button" class="thumb add" data-action="add-photos"><span class="cam" aria-hidden="true">📷</span><span>Photos</span></button>
     </div>`;
   }
@@ -404,52 +416,95 @@
     t.querySelector('small').textContent = `${d.type === 'sortie' ? 'État des lieux de sortie' : "État des lieux d'entrée"} · ${U.fmtDate(d.date)}`;
   }
 
-  function setSaveState(txt) {
-    App.saveState = txt;
+  function syncStateHtml() {
+    const st = Sync.state, det = Sync.detail;
+    const d = App.dossier;
+    if (st === 'saving') return `<span class="ss ss-saving">⟳ Enregistrement sur le PC${det ? ' (' + U.esc(det) + ')' : ''}…</span>`;
+    if (st === 'offline') return `<span class="ss ss-off">⚠ PC injoignable – enregistré sur cet appareil, nouvel essai automatique</span>`;
+    if (st === 'conflict') return `<span class="ss ss-off">⚠ Conflit avec un autre appareil – toucher pour résoudre</span>`;
+    if (st === 'auth') return `<span class="ss ss-off">⚠ Reconnexion nécessaire</span>`;
+    if (d && d.server && !d.server.dirty && d.server.savedAt) return `<span class="ss ss-ok">✓ Enregistré sur le PC · ${U.esc(U.fmtDateTime(d.server.savedAt).slice(-5))}</span>`;
+    return `<span class="ss">Enregistré sur cet appareil</span>`;
+  }
+  function setSaveState() {
     const el = $('#save-state');
-    if (el) el.textContent = txt;
+    if (el) el.innerHTML = syncStateHtml();
+    // photos arrivées sur le PC : on retire l'indicateur « en attente »
+    const pend = document.querySelectorAll('.thumb.pending[data-pid]');
+    if (pend.length && App.dossier) {
+      const up = new Set();
+      Sync.holders(App.dossier).forEach(h => h.photos.forEach(p => { if (p.up) up.add(p.id); }));
+      pend.forEach(t => { if (up.has(t.dataset.pid)) { t.classList.remove('pending'); t.title = 'Voir la photo'; } });
+    }
   }
 
   // =====================================================================
-  //  Persistance locale
+  //  Persistance : appareil (IndexedDB) puis PC (serveur)
   // =====================================================================
   async function save() {
     const d = App.dossier;
     if (!d) return;
     d.updatedAt = new Date().toISOString();
-    d.github = d.github || {};
-    d.github.dirty = true;
+    d.server = d.server || { rev: 0, dirty: true, edits: 0 };
+    d.server.dirty = true;
+    d.server.edits = (d.server.edits || 0) + 1;
     try {
       await Store.put(d);
-      setSaveState(`Enregistré sur l'appareil · ${U.timeNow()}${d.github.lastSync ? ' · non envoyé sur GitHub' : ''}`);
     } catch (e) {
       console.error(e);
-      setSaveState("Erreur d'enregistrement local");
-      U.toast("Impossible d'enregistrer localement : " + e.message, 5000);
+      U.toast("Impossible d'enregistrer sur cet appareil : " + e.message, 5000);
     }
+    Sync.schedule(d);
+    setSaveState();
   }
   const scheduleSave = U.debounce(save, 500);
 
   async function refreshList() {
-    try { App.dossiers = await Store.list(); }
-    catch (e) { console.error(e); App.dossiers = []; U.toast('Stockage local indisponible : ' + e.message, 5000); }
+    let local = [];
+    try { local = await Store.list(); } catch (e) { console.error(e); }
+    let remote = null;
+    try { remote = (await API.get('/api/dossiers')).dossiers; App.offline = false; }
+    catch (e) { if (e.status === 401) return; App.offline = true; }
+    const byId = new Map();
+    if (remote) remote.forEach(r => byId.set(r.id, { ...r, onServer: true, dirty: false }));
+    for (const l of local) {
+      const r = byId.get(l.id);
+      if (r) { if (l.dirty) byId.set(l.id, { ...r, ...l, onServer: true, dirty: true }); continue; }
+      // présent sur cet appareil mais pas sur le PC
+      if (remote && l.rev > 0 && !l.dirty) { await Store.remove(l.id).catch(() => {}); continue; } // supprimé depuis un autre appareil
+      byId.set(l.id, { ...l, onServer: false });
+    }
+    App.dossiers = Array.from(byId.values()).sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
   }
 
   async function openDossier(id) {
-    const d = await Store.get(id);
+    const prog = setTimeout(() => U.toast('Ouverture…', 1500), 400);
+    let local = null, remote = null;
+    try { local = await Store.get(id); } catch (e) { console.error(e); }
+    try { remote = (await API.get(`/api/dossiers/${encodeURIComponent(id)}`)).dossier; }
+    catch (e) { if (e.status === 401) { clearTimeout(prog); return; } }
+    clearTimeout(prog);
+    let d;
+    if (local && local.server && local.server.dirty) d = local;        // modifications locales à envoyer
+    else if (remote) d = Sync.fromServer(remote, local);                // version du PC
+    else if (local) d = local;                                          // PC injoignable : copie locale
     if (!d) { U.toast('Dossier introuvable'); return; }
+    try { await Store.put(d); } catch (e) { console.error(e); }
     App.dossier = d;
-    if (Host() && Host().isConnected()) setTimeout(() => Host().sendWelcome(), 0);
+    Sync.current = d;
+    Sync.set(d.server && d.server.dirty ? 'saving' : 'saved');
+    if (d.server && d.server.dirty) Sync.schedule(d, 200);
+    const H = Host();
+    if (H && H.token) H.setTitle(d.adresse || 'État des lieux');
     App.tab = 'general';
-    App.saveState = d.github && d.github.lastSync && !d.github.dirty
-      ? `Synchronisé GitHub · ${U.fmtDateTime(d.github.lastSync)}` : "Enregistré sur l'appareil";
     window.scrollTo(0, 0);
     render();
   }
 
   async function goHome() {
-    if (App.dossier) await save();
+    if (App.dossier) { await save(); await Sync.flush(App.dossier).catch(() => {}); }
     App.dossier = null;
+    Sync.current = null;
     await refreshList();
     render();
   }
@@ -501,14 +556,14 @@
       case 'remote': openRemoteModal(); break;
       case 'new-dossier': newDossierDialog(); break;
       case 'import-json': $('#json-input').click(); break;
-      case 'load-github': loadFromGithubDialog(); break;
+      case 'refresh': await refreshList(); render(); U.toast(App.offline ? 'Serveur injoignable' : 'Liste à jour'); break;
       case 'open-dossier': openDossier(btn.dataset.id); break;
 
       // ----- dossier -----
       case 'home': goHome(); break;
       case 'menu': openMenu(); break;
       case 'export-pdf': exportPdf(); break;
-      case 'github-save': githubSave(); break;
+      case 'sync-now': syncNow(); break;
       case 'add-room': addRoomDialog(); break;
 
       // ----- pièce -----
@@ -530,7 +585,7 @@
         if (!room) break;
         const copy = U.clone(room);
         copy.id = U.uid(); copy.nom = room.nom + ' (copie)';
-        copy.lignes.forEach(l => { l.id = U.uid(); l.photos.forEach(p => { p.id = U.uid(); delete p.remote; }); });
+        copy.lignes.forEach(l => { l.id = U.uid(); }); // les photos sont partagées (mêmes fichiers sur le PC)
         d.pieces.splice(d.pieces.indexOf(room) + 1, 0, copy);
         App.tab = 'piece:' + copy.id;
         await save(); render();
@@ -602,7 +657,7 @@
       case 'add-photos': {
         const holder = resolveTarget(btn);
         if (!holder || !Array.isArray(holder.photos)) break;
-        if (Host() && Host().isConnected()) { requestFromPhone(holder, photoLabel(btn, holder)); break; }
+        if (Host() && Host().isConnected()) { requestFromPhone(holder, photoLabel(btn, holder), photoTarget(btn, holder)); break; }
         App.photoTarget = holder;
         $('#photo-input').click();
         break;
@@ -685,7 +740,7 @@
       try {
         const full = await U.resizeImage(f, 1600, 0.82);
         const th = await U.resizeImage(full.dataUrl, 320, 0.7);
-        holder.photos.push({ id: U.uid(), name: f.name || '', dataUrl: full.dataUrl, thumb: th.dataUrl, w: full.w, h: full.h, addedAt: new Date().toISOString() });
+        holder.photos.push({ id: U.uid(), name: f.name || '', dataUrl: full.dataUrl, thumb: th.dataUrl, w: full.w, h: full.h, addedAt: new Date().toISOString(), up: false });
         ok++;
       } catch (err) {
         console.error(err);
@@ -712,7 +767,7 @@
     const draw = () => {
       const p = holder.photos[index];
       if (!p) { Modal.close(el); return; }
-      el.querySelector('.pv-img').src = p.dataUrl || p.thumb || '';
+      el.querySelector('.pv-img').src = photoSrc(p, false);
       el.querySelector('.pv-count').textContent = `${index + 1} / ${holder.photos.length}${p.name ? ' · ' + p.name : ''}`;
     };
     // balayage gauche / droite (tactile) et flèches du clavier
@@ -755,22 +810,43 @@
 
 
   // =====================================================================
-  //  Téléphone utilisé comme appareil photo
+  //  Téléphone utilisé comme appareil photo (via le PC, sur le Wi-Fi)
   // =====================================================================
   function photoLabel(btn, holder) {
     if (btn.closest('[data-meter]')) return `Compteur › ${holder.type || 'compteur'}`;
     const r = currentRoom();
     return `${r ? r.nom : 'Pièce'} › ${holder.nom || 'élément'}`;
   }
+  function photoTarget(btn, holder) {
+    if (btn.closest('[data-meter]')) return { kind: 'meter', meterId: holder.id };
+    const r = currentRoom();
+    return { kind: 'line', pieceId: r ? r.id : '', lineId: holder.id };
+  }
+  function findHolder(d, target) {
+    if (!d || !target) return null;
+    if (target.kind === 'meter') return d.compteurs.find(m => m.id === target.meterId) || null;
+    const r = d.pieces.find(p => p.id === target.pieceId);
+    return r ? r.lignes.find(l => l.id === target.lineId) || null : null;
+  }
 
-  function isLocalAddress() {
-    return location.protocol === 'file:' || /^(localhost|127\.|0\.0\.0\.0|\[::1\])/.test(location.hostname);
+  function isLocalAddress(host) {
+    return /^(localhost|127\.|0\.0\.0\.0|\[::1\]|::1$)/.test(host || location.hostname);
+  }
+  /* Adresse à laquelle le téléphone peut joindre le PC. */
+  function phoneBaseUrl() {
+    const H = Host();
+    const override = U.local.get('edl.lanUrl');          // adresse saisie à la main sur cet appareil
+    if (override) return override;
+    if (H && H.publicUrl) return H.publicUrl;           // PUBLIC_URL (.env / demarrer.bat)
+    if (App.publicUrl) return App.publicUrl;
+    if (!isLocalAddress()) return location.origin;      // page déjà ouverte via l'adresse réseau du PC
+    return '';
   }
 
   function openRemoteModal() {
     const H = Host();
     if (!H) { Modal.alert('Module téléphone indisponible.'); return; }
-    H.start();
+    H.start(App.dossier ? App.dossier.adresse : '');
     const el = Modal.open('<div class="remote-body"></div>', { cls: 'remote-modal' });
     const body = el.querySelector('.remote-body');
     let closing = false;
@@ -778,7 +854,7 @@
       const st = H.state;
       let html = `<h3>📱 Téléphone comme appareil photo</h3>`;
       if (st === 'starting' || st === 'off') {
-        html += `<div class="spinner"></div><p class="center muted">Préparation de la connexion…</p>`;
+        html += `<div class="spinner"></div><p class="center muted">Préparation…</p>`;
       } else if (st === 'error') {
         html += `<p class="hint err">${U.esc(H.error || 'Erreur de connexion')}</p>
           <div class="modal-actions"><button class="btn" data-r="close">Fermer</button><button class="btn primary" data-r="retry">Réessayer</button></div>`;
@@ -787,22 +863,34 @@
           <p class="muted">Touchez <strong>📷 Photos</strong> sur une ligne : la demande s'affiche sur le téléphone, et les photos arrivent ici automatiquement.</p></div>
           <div class="modal-actions between"><button class="btn danger" data-r="stop">Déconnecter le téléphone</button><button class="btn primary" data-r="close">OK</button></div>`;
       } else {
-        const link = H.link();
+        const base = phoneBaseUrl();
+        let needBase = App._forceBaseForm || !base;
+        try { if (!needBase) needBase = isLocalAddress(new URL(base, location.href).hostname); } catch (e) { needBase = true; }
         let qr = '';
-        try { const q = qrcode(0, 'M'); q.addData(link); q.make(); qr = q.createSvgTag({ cellSize: 6, margin: 3, scalable: true }); }
-        catch (e) { qr = '<p class="hint err">QR code impossible à générer.</p>'; }
-        html += `<div class="remote-qr-wrap">
+        if (!needBase) {
+          try { const q = qrcode(0, 'M'); q.addData(H.link(base)); q.make(); qr = q.createSvgTag({ cellSize: 6, margin: 3, scalable: true }); }
+          catch (e) { qr = '<p class="hint err">QR code impossible à générer.</p>'; }
+        }
+        html += needBase ? `
+          <p>Le téléphone ne peut pas utiliser l'adresse « ${U.esc(location.host)} » : indiquez l'adresse du PC sur le réseau Wi-Fi.</p>
+          <form class="remote-base" data-r-form="base">
+            <label class="field"><span>Adresse du PC (ex. http://192.168.1.20:${U.esc(location.port || '8080')})</span>
+            <input class="input" name="base" value="${U.esc(U.local.get('edl.lanUrl') || App.publicUrl || '')}" placeholder="http://192.168.1.20:${U.esc(location.port || '8080')}" autocapitalize="off" autocomplete="off" inputmode="url"></label>
+            <p class="muted small">Le script <strong>demarrer.bat</strong> affiche cette adresse et la renseigne automatiquement (variable PUBLIC_URL du fichier .env). Sinon : <code>ipconfig</code> dans une invite de commandes, ligne « Adresse IPv4 ».</p>
+            <div class="modal-actions"><button type="button" class="btn" data-r="close">Fermer</button><button class="btn primary" type="submit">Afficher le QR code</button></div>
+          </form>` : `
+          <div class="remote-qr-wrap">
             <div class="remote-qr" aria-label="QR code à scanner avec le téléphone">${qr}</div>
             <ol class="remote-steps">
-              <li>Ouvrez l'appareil photo du téléphone et visez ce QR code.</li>
-              <li>Touchez le lien proposé : une page « Appareil photo » s'ouvre sur le téléphone.</li>
+              <li>Connectez le téléphone au <strong>même Wi-Fi</strong> que le PC.</li>
+              <li>Visez ce QR code avec l'appareil photo du téléphone et ouvrez le lien : la page « Appareil photo » s'affiche.</li>
               <li>Ensuite, chaque <strong>📷 Photos</strong> touché ici déclenche la prise de vue sur le téléphone.</li>
             </ol>
           </div>
-          ${isLocalAddress() ? `<p class="hint err">Cette page est ouverte depuis une adresse locale (${U.esc(location.host || 'fichier')}) que le téléphone ne pourra pas ouvrir. Utilisez l'adresse GitHub Pages de l'application.</p>` : ''}
-          <p class="muted small">Le téléphone et cet appareil doivent avoir accès à Internet. Les photos passent directement d'un appareil à l'autre (connexion chiffrée), sans être stockées sur un serveur. Pas besoin du code d'accès sur le téléphone : le QR code contient une clé à usage unique pour cette session.</p>
-          <div class="remote-link"><input class="input" readonly value="${U.esc(link)}" aria-label="Lien de connexion"><button class="btn small" data-r="copy">Copier</button></div>
-          <div class="modal-actions between"><button class="btn" data-r="stop">Arrêter</button><span class="remote-wait"><span class="dot-pulse"></span> En attente du téléphone…</span><button class="btn" data-r="close">Fermer</button></div>`;
+          <p class="muted small">Les photos vont directement du téléphone au PC, sans passer par Internet. Pas de code d'accès à saisir sur le téléphone : le QR code contient une clé propre à cette session, qui ne permet que d'envoyer des photos.</p>
+          <div class="remote-link"><input class="input" readonly value="${U.esc(H.link(base))}" aria-label="Lien de connexion"><button class="btn small" data-r="copy">Copier</button></div>
+          <div class="modal-actions between"><button class="btn" data-r="stop">Arrêter</button><span class="remote-wait"><span class="dot-pulse"></span> En attente du téléphone…</span><button class="btn" data-r="close">Fermer</button></div>
+          <p class="small center"><button class="linkish" type="button" data-r="editbase">Le téléphone n'arrive pas à ouvrir le lien ? Modifier l'adresse du PC</button></p>`;
       }
       body.innerHTML = html;
     };
@@ -816,12 +904,25 @@
         setTimeout(() => { if (document.body.contains(el)) { Modal.close(el); off(); } }, 1600);
       }
     });
+    el.addEventListener('submit', e => {
+      const f = e.target.closest('[data-r-form="base"]'); if (!f) return;
+      e.preventDefault();
+      let v = f.elements.base.value.trim().replace(/\/+$/, '');
+      if (v && !/^https?:\/\//i.test(v)) v = 'http://' + v;
+      try { new URL(v); } catch (err) { U.toast('Adresse invalide'); return; }
+      U.local.set('edl.lanUrl', v);
+      draw();
+    });
     el.addEventListener('click', async e => {
       const b = e.target.closest('[data-r]'); if (!b) return;
       const a = b.dataset.r;
       if (a === 'close') { Modal.close(el); off(); }
-      else if (a === 'retry') { H.destroyPeer(); H.start(); }
-      else if (a === 'stop') { H.stop(); Modal.close(el); off(); U.toast('Téléphone déconnecté'); }
+      else if (a === 'retry') {
+        if (H.token && H.es && H.es.readyState !== 2) H.set(H.phones > 0 ? 'connected' : 'ready'); // affiche le nouveau QR code
+        else H.start(App.dossier ? App.dossier.adresse : '');
+      }
+      else if (a === 'stop') { await H.stop(); Modal.close(el); off(); U.toast('Téléphone déconnecté'); }
+      else if (a === 'editbase') { U.local.set('edl.lanUrl', ''); App._forceBaseForm = true; draw(); App._forceBaseForm = false; }
       else if (a === 'copy') {
         const inp = body.querySelector('.remote-link input');
         try { await navigator.clipboard.writeText(inp.value); U.toast('Lien copié'); }
@@ -831,11 +932,13 @@
   }
 
   /* Demande une ou plusieurs photos au téléphone pour une ligne / un compteur. */
-  function requestFromPhone(holder, label) {
+  async function requestFromPhone(holder, label, target) {
     const H = Host();
-    const req = H.request(holder, label);
-    const pend = H.pending.get(req);
-    pend.dossierId = App.dossier && App.dossier.id;
+    const d = App.dossier;
+    // le dossier doit exister sur le PC pour y ranger les photos
+    let req;
+    try { req = await H.request(label, d.id, target, d.adresse || ''); }
+    catch (e) { Modal.alert("Impossible d'envoyer la demande au téléphone : " + e.message); return; }
     const el = Modal.open(`<div class="wait-phone">
   <div class="wp-ico" aria-hidden="true">📱</div>
   <h3>Prenez la photo avec le téléphone</h3>
@@ -852,56 +955,60 @@
     const close = () => { Modal.close(el); App.remoteWait = null; offState(); };
     App.remoteWait = {
       req,
-      added(photo) {
+      added(src) {
         n++;
         count.textContent = `${n} photo${n > 1 ? 's' : ''} reçue${n > 1 ? 's' : ''} – vous pouvez en prendre d'autres.`;
-        const d = document.createElement('div'); d.className = 'thumb';
-        d.innerHTML = `<img src="${photo.thumb || photo.dataUrl}" alt="">`;
-        thumbs.appendChild(d);
+        const t = document.createElement('div'); t.className = 'thumb';
+        t.innerHTML = `<img src="${U.esc(src)}" alt="">`;
+        thumbs.appendChild(t);
       },
       done() { close(); if (n) U.toast(`${n} photo${n > 1 ? 's' : ''} ajoutée${n > 1 ? 's' : ''} depuis le téléphone`); }
     };
     const offState = H.onChange(st => {
       if (!document.body.contains(el)) { offState(); return; }
-      if (st !== 'connected') count.innerHTML = '<span class="hint err">Téléphone déconnecté. Il se reconnecte automatiquement s\'il reste sur la page « Appareil photo » ; sinon, utilisez cet appareil.</span>';
+      if (st !== 'connected') count.innerHTML = '<span class="hint err">Téléphone déconnecté. Il se reconnecte tout seul s\'il reste sur la page « Appareil photo » ; sinon, utilisez cet appareil.</span>';
       else count.textContent = n ? `${n} photo(s) reçue(s).` : 'Téléphone reconnecté – en attente des photos…';
     });
     el.addEventListener('click', e => {
       const b = e.target.closest('[data-w]'); if (!b) return;
       H.cancel(req);
-      if (b.dataset.w === 'local') {
-        close();
-        App.photoTarget = holder;
-        $('#photo-input').click();
-      } else {
-        close();
-        if (n) U.toast(`${n} photo${n > 1 ? 's' : ''} ajoutée${n > 1 ? 's' : ''}`);
-      }
+      close();
+      if (b.dataset.w === 'local') { App.photoTarget = holder; $('#photo-input').click(); }
+      else if (n) U.toast(`${n} photo${n > 1 ? 's' : ''} ajoutée${n > 1 ? 's' : ''}`);
     });
   }
 
-  /* Réception d'une photo envoyée par le téléphone. */
-  async function onPhonePhoto(pend, msg) {
-    if (!App.dossier || pend.dossierId !== App.dossier.id) throw new Error('dossier fermé');
-    if (typeof msg.dataUrl !== 'string' || !/^data:image\/(jpeg|png|webp);base64,/.test(msg.dataUrl)) throw new Error('format invalide');
-    let w = msg.w, h = msg.h, thumb = null;
-    try { const th = await U.resizeImage(msg.dataUrl, 320, 0.7); thumb = th.dataUrl; } catch (e) { /* vignette facultative */ }
-    if (!w || !h) { try { const im = await U.loadImage(msg.dataUrl); w = im.naturalWidth; h = im.naturalHeight; } catch (e) { /* ignore */ } }
-    const photo = { id: U.uid(), name: String(msg.name || '').slice(0, 120), dataUrl: msg.dataUrl, thumb: thumb || msg.dataUrl, w, h, addedAt: new Date().toISOString(), source: 'telephone' };
-    pend.holder.photos.push(photo);
-    pend.count = (pend.count || 0) + 1;
-    await save();
-    renderTabOnly();
-    if (App.remoteWait && App.remoteWait.req === msg.req) App.remoteWait.added(photo);
-    else U.toast('📱 Photo reçue : ' + pend.label);
-    return pend.count;
+  /* Une photo du téléphone est arrivée sur le PC : on l'ajoute à la bonne ligne. */
+  async function onPhonePhoto(msg) {
+    const photo = { id: msg.pid, name: String(msg.name || '').slice(0, 120), w: msg.w || null, h: msg.h || null,
+                    addedAt: new Date().toISOString(), source: 'telephone', up: true };
+    let d = App.dossier && App.dossier.id === msg.dossierId ? App.dossier : null;
+    const isOpen = !!d;
+    if (!d) d = await Store.get(msg.dossierId).catch(() => null);
+    if (!d) { try { d = Sync.fromServer((await API.get(`/api/dossiers/${encodeURIComponent(msg.dossierId)}`)).dossier); } catch (e) { d = null; } }
+    const holder = findHolder(d, msg.target);
+    if (!holder) { U.toast('📱 Photo reçue mais la ligne correspondante n\'existe plus.', 4000); return; }
+    if (holder.photos.some(p => p.id === photo.id)) return; // déjà ajoutée (rejeu après reconnexion)
+    holder.photos.push(photo);
+    if (isOpen) {
+      await save();
+      renderTabOnly();
+      if (App.remoteWait && App.remoteWait.req === msg.req) App.remoteWait.added(API.photoUrl(d.id, photo.id, true));
+      else U.toast('📱 Photo reçue : ' + (msg.label || ''));
+    } else {
+      d.server = d.server || { rev: 0 };
+      d.server.dirty = true; d.server.edits = (d.server.edits || 0) + 1;
+      await Store.put(d);
+      Sync.push(d);
+      U.toast('📱 Photo rangée dans « ' + (d.adresse || 'dossier') + ' »');
+    }
   }
 
   function setupRemoteHost() {
     const H = Host();
     if (!H) return;
-    H.handlers.photo = onPhonePhoto;
-    H.handlers.done = (pend, req) => { if (App.remoteWait && App.remoteWait.req === req) App.remoteWait.done(); };
+    H.handlers.photo = msg => onPhonePhoto(msg).catch(e => console.error(e));
+    H.handlers.done = req => { if (App.remoteWait && App.remoteWait.req === req) App.remoteWait.done(); };
     H.onChange(st => {
       updateRemoteBtn();
       if (st === 'ready' && App.remoteWasConnected) { App.remoteWasConnected = false; U.toast('📱 Téléphone déconnecté', 3500); }
@@ -1011,7 +1118,7 @@
   function openMenu() {
     const el = Modal.open(`<div class="sheet">
   <button class="sheet-item" data-m="pdf">📄 Exporter en PDF</button>
-  <button class="sheet-item" data-m="gh">☁ Enregistrer sur GitHub</button>
+  <button class="sheet-item" data-m="sync">💾 Enregistrer sur le PC maintenant</button>
   <button class="sheet-item" data-m="json">💾 Exporter en JSON (sauvegarde complète)</button>
   <button class="sheet-item" data-m="dup">📑 Dupliquer ce dossier</button>
   <button class="sheet-item" data-m="remote">📱 Téléphone comme appareil photo</button>
@@ -1023,41 +1130,101 @@
     el.addEventListener('click', e => {
       const b = e.target.closest('[data-m]'); if (!b) return;
       Modal.close(el);
-      const fn = { pdf: exportPdf, gh: githubSave, json: exportJson, dup: duplicateDossier, display: openDisplay, remote: openRemoteModal, settings: openSettings, del: deleteDossier }[b.dataset.m];
+      const fn = { pdf: exportPdf, sync: syncNow, json: exportJson, dup: duplicateDossier, display: openDisplay, remote: openRemoteModal, settings: openSettings, del: deleteDossier }[b.dataset.m];
       if (fn) fn();
     });
   }
 
+  /* Enregistre tout de suite sur le PC (bouton / menu) et gère les conflits. */
+  async function syncNow() {
+    const d = App.dossier; if (!d) return;
+    if (Sync.state === 'conflict') { resolveConflict(d); return; }
+    await save();
+    const ok = await Sync.flush(d);
+    setSaveState();
+    U.toast(ok ? '✓ Enregistré sur le PC' : '⚠ Pas encore enregistré sur le PC (' + (Sync.detail || 'réessai automatique') + ')', 3000);
+  }
+
+  async function resolveConflict(d) {
+    const keepMine = await Modal.confirm("Ce dossier a aussi été modifié depuis un autre appareil.\n\n• « Garder ma version » remplace la version du PC par celle de cet appareil.\n• « Prendre celle du PC » abandonne les modifications faites ici.\n\n(Les 10 versions précédentes restent archivées sur le PC, dossier data/dossiers/…/historique.)",
+      { title: 'Conflit de modifications', ok: 'Garder ma version', cancel: 'Prendre celle du PC' });
+    if (keepMine) {
+      d.server.force = true;
+      await Store.put(d);
+      await Sync.flush(d);
+    } else {
+      try {
+        const remote = (await API.get(`/api/dossiers/${encodeURIComponent(d.id)}`)).dossier;
+        const nd = Sync.fromServer(remote, d);
+        await Store.put(nd);
+        App.dossier = nd; Sync.current = nd;
+        Sync.set('saved', nd.server.savedAt);
+        render();
+      } catch (e) { Modal.alert('Impossible de charger la version du PC : ' + e.message); }
+    }
+    setSaveState();
+  }
+
+  /* Copie complète avec les photos intégrées (sauvegarde / transfert). */
   async function exportJson() {
     const d = App.dossier;
     await save();
-    const blob = new Blob([JSON.stringify(d, null, 1)], { type: 'application/json' });
-    U.download(`EDL-${d.type === 'sortie' ? 'sortie' : 'entree'}-${U.slug(d.adresse)}-${d.date || ''}.json`, blob);
-    U.toast('Fichier JSON généré');
+    const prog = Modal.progress('Préparation de la sauvegarde');
+    try {
+      const copy = U.clone(d);
+      delete copy.server;
+      const all = Sync.holders(copy).flatMap(h => h.photos);
+      let n = 0;
+      for (const p of all) {
+        n++; prog.update(`Photos ${n} / ${all.length}…`);
+        if (!p.dataUrl) p.dataUrl = await API.photoDataUrl(d.id, p.id);
+        delete p.up; delete p.thumb;
+      }
+      const blob = new Blob([JSON.stringify(copy)], { type: 'application/json' });
+      U.download(`EDL-${d.type === 'sortie' ? 'sortie' : 'entree'}-${U.slug(d.adresse)}-${d.date || ''}.json`, blob);
+      U.toast('Fichier JSON généré');
+    } catch (e) {
+      Modal.alert('Sauvegarde impossible : ' + e.message);
+    } finally { prog.close(); }
   }
 
   async function duplicateDossier() {
     const d = App.dossier;
     await save();
-    const copy = U.clone(d);
-    copy.id = U.uid();
-    copy.createdAt = copy.updatedAt = new Date().toISOString();
-    copy.github = { lastSync: null, dirty: true };
-    copy.pieces.forEach(p => { p.id = U.uid(); p.lignes.forEach(l => { l.id = U.uid(); l.photos.forEach(ph => { ph.id = U.uid(); delete ph.remote; }); }); });
-    copy.compteurs.forEach(m => { m.id = U.uid(); m.photos.forEach(ph => { ph.id = U.uid(); delete ph.remote; }); });
-    copy.cles.forEach(k => { k.id = U.uid(); });
     const keepPhotos = await Modal.confirm('Conserver les photos dans la copie ?', { ok: 'Oui, garder les photos', cancel: 'Non, sans photos' });
-    if (!keepPhotos) { copy.pieces.forEach(p => p.lignes.forEach(l => { l.photos = []; })); copy.compteurs.forEach(m => { m.photos = []; }); }
-    await Store.put(copy);
-    await openDossier(copy.id);
-    U.toast('Dossier dupliqué');
+    const prog = Modal.progress('Duplication');
+    try {
+      if (keepPhotos && !(await Sync.flush(d))) throw new Error("le dossier d'origine n'est pas encore enregistré sur le PC");
+      const copy = U.clone(d);
+      copy.id = U.uid();
+      copy.createdAt = copy.updatedAt = new Date().toISOString();
+      copy.server = { rev: 0, savedAt: null, dirty: true, edits: 1 };
+      copy.pieces.forEach(p => { p.id = U.uid(); p.lignes.forEach(l => { l.id = U.uid(); }); });
+      copy.compteurs.forEach(m => { m.id = U.uid(); });
+      copy.cles.forEach(k => { k.id = U.uid(); });
+      if (!keepPhotos) Sync.holders(copy).forEach(h => { h.photos = []; });
+      else await API.post(`/api/dossiers/${encodeURIComponent(copy.id)}/copy-photos`, { from: d.id });
+      await Store.put(copy);
+      await Sync.flush(copy);
+      prog.close();
+      await openDossier(copy.id);
+      U.toast('Dossier dupliqué');
+    } catch (e) {
+      prog.close();
+      Modal.alert('Duplication impossible : ' + e.message);
+    }
   }
 
   async function deleteDossier() {
     const d = App.dossier;
-    if (!(await Modal.confirm(`Supprimer définitivement ce dossier de cet appareil ?\n${d.adresse || ''}\n(La copie éventuellement enregistrée sur GitHub n'est pas supprimée.)`, { ok: 'Supprimer', danger: true }))) return;
-    await Store.remove(d.id);
-    App.dossier = null;
+    if (!(await Modal.confirm(`Supprimer ce dossier ?\n${d.adresse || ''}\n\nIl est placé dans la corbeille du PC (data/corbeille) pendant 30 jours avant suppression définitive.`, { ok: 'Supprimer', danger: true }))) return;
+    try {
+      if (d.server && d.server.rev > 0) await API.del(`/api/dossiers/${encodeURIComponent(d.id)}`);
+    } catch (e) {
+      if (e.status !== 404) { Modal.alert('Suppression impossible : ' + e.message); return; }
+    }
+    await Store.remove(d.id).catch(() => {});
+    App.dossier = null; Sync.current = null;
     await refreshList();
     render();
     U.toast('Dossier supprimé');
@@ -1069,18 +1236,18 @@
     const prog = Modal.progress('Génération du PDF');
     try {
       const copy = U.clone(d);
-      const holders = [];
-      copy.pieces.forEach(p => p.lignes.forEach(l => holders.push(l)));
-      copy.compteurs.forEach(m => holders.push(m));
+      const holders = Sync.holders(copy);
       const total = holders.reduce((s, h) => s + h.photos.length, 0);
       let n = 0;
       for (const h of holders) {
         for (const ph of h.photos) {
           n++;
           prog.update(`Préparation des photos ${n} / ${total}…`);
-          if (!ph.dataUrl) continue;
-          try { const r = await U.resizeImage(ph.dataUrl, 1000, 0.72); ph.dataUrl = r.dataUrl; ph.w = r.w; ph.h = r.h; }
-          catch (e) { /* on garde l'originale */ }
+          try {
+            const src = ph.dataUrl || await API.photoDataUrl(d.id, ph.id);
+            const r = await U.resizeImage(src, 1000, 0.72);
+            ph.dataUrl = r.dataUrl; ph.w = r.w; ph.h = r.h;
+          } catch (e) { console.warn('Photo ignorée dans le PDF', ph.id, e); ph.dataUrl = null; }
         }
       }
       prog.update('Mise en page…');
@@ -1088,77 +1255,21 @@
       const jsPDF = window.jspdf && window.jspdf.jsPDF;
       if (!jsPDF) throw new Error('Bibliothèque PDF non chargée');
       const doc = EdlPdf.build(copy, jsPDF);
-      U.download(EdlPdf.fileName(d), doc.output('blob'));
-      U.toast('PDF généré');
+      const blob = doc.output('blob');
+      const name = EdlPdf.fileName(d);
+      U.download(name, blob);
+      // copie archivée sur le PC, à côté du dossier
+      prog.update('Archivage sur le PC…');
+      try {
+        await API.post(`/api/dossiers/${encodeURIComponent(d.id)}/pdf?name=${encodeURIComponent(name)}`, new Blob([blob], { type: 'application/pdf' }));
+        U.toast('PDF généré et archivé sur le PC');
+      } catch (e) { U.toast('PDF généré (non archivé sur le PC : ' + e.message + ')', 4000); }
     } catch (e) {
       console.error(e);
       Modal.alert('Erreur lors de la génération du PDF : ' + e.message);
     } finally {
       prog.close();
     }
-  }
-
-  async function githubSave() {
-    if (!GitHub.isConfigured()) {
-      if (await Modal.confirm("GitHub n'est pas encore configuré (dépôt + jeton). Ouvrir les paramètres ?", { ok: 'Paramètres' })) openSettings();
-      return;
-    }
-    await save();
-    const d = App.dossier;
-    const prog = Modal.progress('Enregistrement sur GitHub');
-    try {
-      await GitHub.saveDossier(d, t => prog.update(t));
-      d.github.lastSync = new Date().toISOString();
-      d.github.dirty = false;
-      await Store.put(d);
-      setSaveState(`Synchronisé GitHub · ${U.fmtDateTime(d.github.lastSync)}`);
-      U.toast('Enregistré sur GitHub ✓');
-    } catch (e) {
-      console.error(e);
-      Modal.alert("Échec de l'enregistrement sur GitHub :\n" + e.message, 'Erreur');
-    } finally {
-      prog.close();
-    }
-  }
-
-  async function loadFromGithubDialog() {
-    const prog = Modal.progress('Lecture du dépôt GitHub');
-    let idx;
-    try { idx = await GitHub.loadIndex(); }
-    catch (e) {
-      prog.close();
-      Modal.alert("Impossible de lire l'index des dossiers :\n" + e.message + (GitHub.isConfigured() ? '' : "\n\nConfigurez le dépôt et le jeton dans Paramètres, ou ouvrez l'application depuis son adresse GitHub Pages."), 'Erreur');
-      return;
-    }
-    prog.close();
-    const list = idx.dossiers || [];
-    const el = Modal.open(`<h3>Dossiers enregistrés sur GitHub</h3>
-${list.length ? `<ul class="dossier-list compact">${list.map(d => `
-  <li class="dossier-item" data-m="load" data-id="${U.esc(d.id)}">
-    <div class="di-main"><strong>${U.esc(d.adresse || 'Sans adresse')}</strong>
-      <small>${d.type === 'sortie' ? 'Sortie' : 'Entrée'} · ${U.fmtDate(d.date)} · ${d.nbPhotos || 0} photo${(d.nbPhotos || 0) > 1 ? 's' : ''} · maj ${U.fmtDateTime(d.updatedAt)}</small></div>
-    <span class="chev">⤓</span></li>`).join('')}</ul>` : '<p class="empty">Aucun dossier trouvé dans le dépôt.</p>'}
-<div class="modal-actions"><button class="btn" data-m="close">Fermer</button></div>`);
-    el.addEventListener('click', async e => {
-      const b = e.target.closest('[data-m]'); if (!b) return;
-      if (b.dataset.m === 'close') { Modal.close(el); return; }
-      const id = b.dataset.id;
-      if (App.dossiers.some(x => x.id === id) &&
-          !(await Modal.confirm('Ce dossier existe déjà sur cet appareil. Remplacer la version locale par celle de GitHub ?', { ok: 'Remplacer', danger: true }))) return;
-      Modal.close(el);
-      const p = Modal.progress('Téléchargement du dossier');
-      try {
-        const d = await GitHub.loadDossier(id, t => p.update(t));
-        d.github = { lastSync: new Date().toISOString(), dirty: false };
-        await Store.put(d);
-        await refreshList();
-        render();
-        U.toast('Dossier chargé depuis GitHub');
-      } catch (err) {
-        console.error(err);
-        Modal.alert('Échec du chargement :\n' + err.message, 'Erreur');
-      } finally { p.close(); }
-    });
   }
 
   async function onJsonChosen(e) {
@@ -1173,13 +1284,16 @@ ${list.length ? `<ul class="dossier-list compact">${list.map(d => `
           !(await Modal.confirm('Un dossier avec le même identifiant existe déjà. Le remplacer ?', { ok: 'Remplacer', cancel: 'Importer comme copie', danger: true }))) {
         d.id = U.uid();
       }
-      const needsHydrate = [...d.pieces.flatMap(p => p.lignes), ...d.compteurs].some(h => h.photos.some(ph => !ph.dataUrl && ph.file));
-      if (needsHydrate) {
-        const p = Modal.progress('Téléchargement des photos');
-        try { await GitHub.hydrate(d, t => p.update(t)); } finally { p.close(); }
-      }
-      d.github = { lastSync: null, dirty: true };
+      const existing = App.dossiers.find(x => x.id === d.id);
+      Sync.holders(d).forEach(h => {
+        h.photos = h.photos.filter(p => p.dataUrl);           // seules les photos intégrées au fichier sont importables
+        h.photos.forEach(p => { p.up = false; });
+      });
+      d.server = { rev: existing ? existing.rev || 0 : 0, savedAt: null, dirty: true, edits: 1, force: !!existing };
       await Store.put(d);
+      const prog = Modal.progress('Import vers le PC');
+      const unsub = Sync.onChange((st, det) => prog.update(st === 'saving' ? `Envoi ${det || ''}…` : '…'));
+      try { await Sync.flush(d); } finally { unsub(); prog.close(); }
       await refreshList();
       render();
       U.toast('Dossier importé');
@@ -1189,52 +1303,20 @@ ${list.length ? `<ul class="dossier-list compact">${list.map(d => `
     }
   }
 
-  function configJsText(hash) {
-    return `// ============================================================
-//  Configuration de l'application « État des lieux »
-//  Ce fichier est lu au chargement de la page. Il peut être
-//  modifié à la main ou depuis Paramètres > Code d'accès.
-// ============================================================
-window.EDL_CONFIG = {
-  // Titre affiché dans l'application et dans l'onglet du navigateur.
-  APP_TITLE: ${JSON.stringify(CFG.APP_TITLE || 'État des lieux')},
-
-  // Empreinte SHA-256 (hexadécimale) du code d'accès.
-  // Pour obtenir l'empreinte d'un nouveau code : Paramètres > Code d'accès
-  // (l'application affiche la ligne à coller ici), ou dans un terminal :
-  //   printf '%s' 'moncode' | sha256sum
-  ACCESS_CODE_HASH: ${JSON.stringify(hash)},
-
-  // Dossier du dépôt GitHub dans lequel les états des lieux sont enregistrés.
-  DATA_DIR: ${JSON.stringify(CFG.DATA_DIR || 'data')},
-
-  // Serveur de mise en relation pour « téléphone comme appareil photo ».
-  // null = serveur public gratuit PeerJS. Exemple : { host: "mon-serveur.fr", port: 443, path: "/", secure: true }
-  PEER_SERVER: ${JSON.stringify(CFG.PEER_SERVER || null)}
-};
-`;
-  }
-
   function openSettings() {
-    const c = GitHub.getConfig();
-    const auto = GitHub.detectRepo();
+    const lan = App.publicUrl || (!isLocalAddress() ? location.origin : (U.local.get('edl.lanUrl') || ''));
     const el = Modal.open(`<h3>Paramètres</h3>
-<form data-f="gh">
-  <h4>Synchronisation GitHub</h4>
-  <p class="muted small">Les dossiers (JSON + photos) sont enregistrés dans le dépôt, dossier <code>${U.esc(GitHub.dataDir())}/</code>, en un commit par enregistrement. Le jeton n'est stocké que dans ce navigateur.</p>
-  <label class="field"><span>Propriétaire (owner)</span><input class="input" name="owner" value="${U.esc(c.owner || auto.owner || '')}" autocapitalize="off" autocomplete="off" placeholder="mon-compte"></label>
-  <label class="field"><span>Dépôt (repo)</span><input class="input" name="repo" value="${U.esc(c.repo || auto.repo || '')}" autocapitalize="off" autocomplete="off" placeholder="etat-des-lieux"></label>
-  <label class="field"><span>Branche</span><input class="input" name="branch" value="${U.esc(c.branch || 'main')}" autocapitalize="off" autocomplete="off"></label>
-  <label class="field"><span>Jeton d'accès (fine-grained PAT, permission « Contents » en lecture/écriture)</span><input class="input" type="password" name="token" value="${U.esc(c.token || '')}" autocomplete="off" placeholder="github_pat_…"></label>
-  <div class="modal-actions"><button type="button" class="btn" data-m="test">Tester</button><button type="submit" class="btn primary">Enregistrer</button></div>
-  <p class="hint" data-m="ghmsg"></p>
-</form>
+<h4>Serveur (ce PC)</h4>
+<p class="muted small">Les dossiers, photos et PDF sont enregistrés sur le PC, dans le dossier <code>data</code> à côté du fichier <code>docker-compose.yml</code>. Chaque modification est aussi gardée sur l'appareil tant qu'elle n'est pas arrivée sur le PC.</p>
+<p class="small">Adresse pour la tablette / le téléphone : <strong>${lan ? U.esc(lan) : 'non définie (PUBLIC_URL dans .env, ou lancez demarrer.bat)'}</strong></p>
 <hr>
 <form data-f="code">
   <h4>Code d'accès</h4>
-  <p class="muted small">Le nouveau code s'applique immédiatement sur cet appareil. Pour les autres appareils, mettez à jour <code>config.js</code> dans le dépôt (bouton ci-dessous si GitHub est configuré, sinon copiez la ligne affichée).</p>
-  <label class="field"><span>Nouveau code</span><input class="input" type="password" name="code" autocomplete="new-password" required></label>
-  <label class="field"><span>Confirmer le code</span><input class="input" type="password" name="code2" autocomplete="new-password" required></label>
+  ${App.defaultCode ? '<p class="hint err">Le code par défaut (1234) est encore utilisé : changez-le.</p>' : ''}
+  <p class="muted small">Le nouveau code vaut pour tous les appareils (ils devront se reconnecter). Si vous modifiez plus tard <code>ACCESS_CODE</code> dans le fichier <code>.env</code>, c'est ce code-là qui redeviendra valable au redémarrage.</p>
+  <label class="field"><span>Code actuel</span><input class="input" type="password" name="current" autocomplete="current-password" required></label>
+  <label class="field"><span>Nouveau code (4 caractères minimum)</span><input class="input" type="password" name="code" autocomplete="new-password" required minlength="4"></label>
+  <label class="field"><span>Confirmer le nouveau code</span><input class="input" type="password" name="code2" autocomplete="new-password" required></label>
   <div class="modal-actions"><button type="submit" class="btn primary">Changer le code</button></div>
   <div class="hint" data-m="codemsg"></div>
 </form>
@@ -1249,51 +1331,22 @@ window.EDL_CONFIG = {
 </div>
 <p class="muted small center">${U.esc(appTitle())} · version ${APP_VERSION}</p>`, { cls: 'settings-modal' });
 
-    const ghForm = el.querySelector('[data-f="gh"]');
-    const ghMsg = el.querySelector('[data-m="ghmsg"]');
-    const readGh = () => ({ owner: ghForm.elements.owner.value.trim(), repo: ghForm.elements.repo.value.trim(), branch: ghForm.elements.branch.value.trim() || 'main', token: ghForm.elements.token.value.trim() });
-    ghForm.addEventListener('submit', e => {
-      e.preventDefault();
-      GitHub.setConfig(readGh());
-      ghMsg.textContent = 'Paramètres GitHub enregistrés sur cet appareil.';
-      ghMsg.className = 'hint ok';
-    });
-    el.querySelector('[data-m="test"]').addEventListener('click', async () => {
-      GitHub.setConfig(readGh());
-      ghMsg.textContent = 'Test en cours…'; ghMsg.className = 'hint';
-      try {
-        const r = await GitHub.test();
-        ghMsg.textContent = `Connexion OK : ${r.full_name} (${r.private ? 'dépôt privé' : 'dépôt public'}), branche « ${readGh().branch} » trouvée.`;
-        ghMsg.className = 'hint ok';
-      } catch (err) {
-        ghMsg.textContent = 'Échec : ' + err.message; ghMsg.className = 'hint err';
-      }
-    });
-
     const codeForm = el.querySelector('[data-f="code"]');
     const codeMsg = el.querySelector('[data-m="codemsg"]');
     codeForm.addEventListener('submit', async e => {
       e.preventDefault();
-      const c1 = codeForm.elements.code.value, c2 = codeForm.elements.code2.value;
+      const cur = codeForm.elements.current.value, c1 = codeForm.elements.code.value.trim(), c2 = codeForm.elements.code2.value.trim();
       if (c1.length < 4) { codeMsg.textContent = 'Le code doit contenir au moins 4 caractères.'; codeMsg.className = 'hint err'; return; }
       if (c1 !== c2) { codeMsg.textContent = 'Les deux codes ne correspondent pas.'; codeMsg.className = 'hint err'; return; }
-      const hash = await sha256Hex(c1.trim());
-      U.local.set('edl.codeHash', hash);
-      if (U.local.get('edl.auth')) U.local.set('edl.auth', hash);
-      codeForm.elements.code.value = ''; codeForm.elements.code2.value = '';
-      codeMsg.className = 'hint ok';
-      codeMsg.innerHTML = `Code modifié sur cet appareil. Ligne à placer dans <code>config.js</code> :<br>
-        <code class="block">ACCESS_CODE_HASH: "${hash}",</code>
-        ${GitHub.isConfigured() ? '<button type="button" class="btn small primary" data-m="pushcfg">Mettre à jour config.js sur GitHub</button>' : ''}`;
-      const push = codeMsg.querySelector('[data-m="pushcfg"]');
-      if (push) push.addEventListener('click', async () => {
-        push.disabled = true; push.textContent = 'Envoi…';
-        try {
-          await GitHub.putTextFile('config.js', configJsText(hash), "Mise à jour du code d'accès");
-          CFG.ACCESS_CODE_HASH = hash;
-          push.textContent = 'config.js mis à jour ✓ (le site se republie en 1 à 2 minutes)';
-        } catch (err) { push.disabled = false; push.textContent = 'Échec : ' + err.message; }
-      });
+      try {
+        await API.post('/api/code', { current: cur, next: c1 }, { noAuthHook: true });
+        codeForm.reset();
+        App.defaultCode = false;
+        codeMsg.textContent = 'Code modifié ✓ Les autres appareils devront se reconnecter avec le nouveau code.';
+        codeMsg.className = 'hint ok';
+      } catch (err) {
+        codeMsg.textContent = err.message; codeMsg.className = 'hint err';
+      }
     });
 
     el.addEventListener('click', e => {
@@ -1312,39 +1365,41 @@ window.EDL_CONFIG = {
     if (!f.dataset || f.dataset.form !== 'login') return;
     e.preventDefault();
     const btn = f.querySelector('button[type="submit"]');
+    const err = f.querySelector('.error');
     btn.disabled = true;
     try {
-      const h = await sha256Hex(f.elements.code.value.trim());
-      if (h === expectedHash()) {
-        U.session.set('edl.auth', '1');
-        if (f.elements.remember.checked) U.local.set('edl.auth', h);
-        App.authed = true;
-        await refreshList();
-        render();
-      } else {
-        f.querySelector('.error').hidden = false;
-        f.elements.code.value = '';
-        f.elements.code.focus();
-      }
+      await API.post('/api/login', { code: f.elements.code.value.trim(), remember: f.elements.remember.checked }, { noAuthHook: true });
+      App.authed = true;
+      if (App.dossier) { render(); Sync.push(App.dossier); }
+      else { await refreshList(); render(); }
+      if (Host()) Host().resume();
+    } catch (ex) {
+      err.textContent = ex.status === 401 ? 'Code incorrect.' : ex.message;
+      err.hidden = false;
+      f.elements.code.value = '';
+      f.elements.code.focus();
     } finally { btn.disabled = false; }
   }
 
   // =====================================================================
   //  Démarrage
   // =====================================================================
-  function registerSW() {
-    if (!('serviceWorker' in navigator) || !/^https?:$/.test(location.protocol)) return;
-    navigator.serviceWorker.register('./sw.js').catch(err => console.warn('Service worker non enregistré :', err));
+  function serverDownView(msg) {
+    return `<div class="screen login"><div class="card login-card center">
+      <div class="brand"><span class="brand-icon" aria-hidden="true">🔌</span><h1>Serveur injoignable</h1></div>
+      <p>${U.esc(msg || "L'application n'arrive pas à joindre le PC.")}</p>
+      <p class="muted small">Vérifiez que le PC est allumé, que Docker Desktop est lancé et que cet appareil est sur le même Wi-Fi.</p>
+      <button class="btn primary block" data-action="reload">Réessayer</button></div></div>`;
   }
 
   async function init() {
-    document.title = appTitle();
     const r = root();
+    API.onUnauthorized = onUnauthorized;
     // Page dédiée du téléphone (ouverte via le QR code) : pas de code d'accès,
-    // elle ne donne accès à aucune donnée et sert uniquement à envoyer des photos.
-    if (window.Remote && Remote.parsePhoneLink()) { Remote.runPhone(r); registerSW(); return; }
+    // le jeton de jumelage ne permet que d'envoyer des photos.
+    if (window.Remote && Remote.parsePhoneLink()) { Remote.runPhone(r); return; }
     setupRemoteHost();
-    r.addEventListener('click', onClick);
+    r.addEventListener('click', e => { if (e.target.closest('[data-action="reload"]')) location.reload(); else onClick(e); });
     r.addEventListener('input', onFieldInput);
     r.addEventListener('change', onFieldInput);
     r.addEventListener('submit', onSubmit);
@@ -1352,12 +1407,25 @@ window.EDL_CONFIG = {
       if (e.key === 'Enter' && e.target.classList && e.target.classList.contains('line-name')) { e.preventDefault(); e.target.blur(); }
     });
     window.addEventListener('edl:layout', () => afterRender());
+    window.addEventListener('beforeunload', e => {
+      const d = App.dossier;
+      if (d && d.server && d.server.dirty && Sync.state !== 'offline') { Sync.push(d); e.preventDefault(); e.returnValue = ''; }
+    });
     $('#photo-input').addEventListener('change', onPhotosChosen);
     $('#json-input').addEventListener('change', onJsonChosen);
-    App.authed = checkAuth();
+    Sync.onChange(() => setSaveState());
+    Sync.onConflict = d => { if (App.dossier === d) resolveConflict(d); };
+    let cfg;
+    try { cfg = await API.get('/api/config'); }
+    catch (e) { r.innerHTML = serverDownView(); return; }
+    App.title = cfg.title || App.title;
+    App.publicUrl = cfg.publicUrl || null;
+    App.defaultCode = !!cfg.defaultCode;
+    document.title = appTitle();
+    App.authed = !!cfg.authenticated;
     if (App.authed) await refreshList();
     render();
-    registerSW();
+    if (App.authed && Host()) Host().resume();
   }
 
   window.EDL = { App, Modal, render, save, version: APP_VERSION };

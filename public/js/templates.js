@@ -95,7 +95,7 @@
       bailleur: '', locataire: '', meuble, remarques: '',
       compteurs: defaultMeters(), cles: defaultKeys(),
       pieces: PIECES_DEFAUT.map(k => makeRoom(k, null, meuble)),
-      github: { lastSync: null, dirty: true }
+      server: { rev: 0, savedAt: null, dirty: true, edits: 0 }
     };
   }
 
@@ -121,8 +121,18 @@
         l.etat = ETATS.includes(l.etat) ? l.etat : ''; l.fonctionne = ['oui', 'non', 'na'].includes(l.fonctionne) ? l.fonctionne : 'na';
         l.remarques = l.remarques || ''; if (!Array.isArray(l.photos)) l.photos = []; }); });
     delete d.signatures; // fonction retirée (v1.2)
-    if (!d.github || typeof d.github !== 'object') d.github = { lastSync: null, dirty: true };
+    delete d.github;
+    if (!d.server || typeof d.server !== 'object') d.server = { rev: 0, savedAt: null, dirty: true, edits: 0 };
+    (d.pieces || []).forEach(p => p.lignes.forEach(l => l.photos.forEach(fixPhoto)));
+    (d.compteurs || []).forEach(m => m.photos.forEach(fixPhoto));
     return d;
+  }
+
+  /* Photo : { id, name, w, h, addedAt, source?, up (déjà sur le PC), dataUrl? (en attente d'envoi), thumb? (cache local) } */
+  function fixPhoto(p) {
+    if (!p.id) p.id = U.uid();
+    if (p.up == null) p.up = !p.dataUrl;
+    delete p.remote; delete p.file;
   }
 
   function countPhotos(d) {
@@ -136,7 +146,7 @@
     return {
       id: d.id, adresse: d.adresse || '', complement: d.complement || '', type: d.type, date: d.date || '',
       updatedAt: d.updatedAt, nbPieces: (d.pieces || []).length, nbPhotos: countPhotos(d),
-      lastSync: d.github && d.github.lastSync || null, dirty: !!(d.github && d.github.dirty)
+      rev: (d.server && d.server.rev) || 0, savedAt: (d.server && d.server.savedAt) || null, dirty: !!(d.server && d.server.dirty)
     };
   }
 
