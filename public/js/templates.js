@@ -47,9 +47,21 @@
 
   const PIECES_DEFAUT = ['entree', 'sejour', 'cuisine', 'chambre', 'sdb', 'wc'];
 
+  /* Défauts proposés à l'ajout rapide (le libellé reste modifiable ; « Autre… » permet d'en saisir un). */
+  const DEFAUTS = [
+    'Trace', 'Tache', 'Rayure', 'Impact', 'Écaillé', 'Fissure', 'Trou', 'Fuite',
+    'Humidité', 'Moisissure', 'Cassé', 'Décollé', 'Usure', 'Jauni', 'Brûlure', 'Manquant', 'Sale', 'Ne fonctionne pas'
+  ];
+  const GRAVITES = [['leger', 'Léger'], ['moyen', 'Moyen'], ['important', 'Important']];
+  const GRAVITE_LABEL = { leger: 'léger', moyen: 'moyen', important: 'important' };
+
+  function makeDefect(type) {
+    return { id: U.uid(), type: type || 'Défaut', precision: '', gravite: '', photos: [] };
+  }
+
   function makeLine(nom, cat) {
     return { id: U.uid(), nom: nom || '', cat: cat === 'meuble' ? 'meuble' : 'element',
-             etat: '', fonctionne: 'na', remarques: '', photos: [] };
+             etat: '', fonctionne: 'na', remarques: '', photos: [], defauts: [] };
   }
 
   function makeRoom(typeKey, nom, meuble) {
@@ -77,7 +89,7 @@
   }
 
   function makeKey(type, nombre) {
-    return { id: U.uid(), type: type || '', nombre: nombre || '' };
+    return { id: U.uid(), type: type || '', nombre: nombre || '', photos: [] };
   }
 
   function defaultKeys() {
@@ -113,18 +125,22 @@
       if (!Array.isArray(m.index)) m.index = []; m.index.forEach(ix => { ix.label = ix.label || ''; ix.value = ix.value == null ? '' : String(ix.value); });
       m.remarques = m.remarques || ''; if (!Array.isArray(m.photos)) m.photos = []; });
     if (!Array.isArray(d.cles)) d.cles = [];
-    d.cles.forEach(k => { k.id = k.id || U.uid(); k.type = k.type || ''; k.nombre = k.nombre == null ? '' : String(k.nombre); });
+    d.cles.forEach(k => { k.id = k.id || U.uid(); k.type = k.type || ''; k.nombre = k.nombre == null ? '' : String(k.nombre); if (!Array.isArray(k.photos)) k.photos = []; });
     if (!Array.isArray(d.pieces)) d.pieces = [];
     d.pieces.forEach(p => { p.id = p.id || U.uid(); p.nom = p.nom || 'Pièce'; p.remarques = p.remarques || '';
       if (!Array.isArray(p.lignes)) p.lignes = [];
       p.lignes.forEach(l => { l.id = l.id || U.uid(); l.nom = l.nom || ''; l.cat = l.cat === 'meuble' ? 'meuble' : 'element';
         l.etat = ETATS.includes(l.etat) ? l.etat : ''; l.fonctionne = ['oui', 'non', 'na'].includes(l.fonctionne) ? l.fonctionne : 'na';
-        l.remarques = l.remarques || ''; if (!Array.isArray(l.photos)) l.photos = []; }); });
+        l.remarques = l.remarques || ''; if (!Array.isArray(l.photos)) l.photos = [];
+        if (!Array.isArray(l.defauts)) l.defauts = [];
+        l.defauts.forEach(df => { df.id = df.id || U.uid(); df.type = df.type || 'Défaut'; df.precision = df.precision || '';
+          df.gravite = ['leger', 'moyen', 'important'].includes(df.gravite) ? df.gravite : ''; if (!Array.isArray(df.photos)) df.photos = []; }); }); });
     delete d.signatures; // fonction retirée (v1.2)
     delete d.github;
     if (!d.server || typeof d.server !== 'object') d.server = { rev: 0, savedAt: null, dirty: true, edits: 0 };
-    (d.pieces || []).forEach(p => p.lignes.forEach(l => l.photos.forEach(fixPhoto)));
+    (d.pieces || []).forEach(p => p.lignes.forEach(l => { l.photos.forEach(fixPhoto); l.defauts.forEach(df => df.photos.forEach(fixPhoto)); }));
     (d.compteurs || []).forEach(m => m.photos.forEach(fixPhoto));
+    (d.cles || []).forEach(k => k.photos.forEach(fixPhoto));
     return d;
   }
 
@@ -137,8 +153,12 @@
 
   function countPhotos(d) {
     let n = 0;
-    (d.pieces || []).forEach(p => (p.lignes || []).forEach(l => { n += (l.photos || []).length; }));
+    (d.pieces || []).forEach(p => (p.lignes || []).forEach(l => {
+      n += (l.photos || []).length;
+      (l.defauts || []).forEach(df => { n += (df.photos || []).length; });
+    }));
     (d.compteurs || []).forEach(m => { n += (m.photos || []).length; });
+    (d.cles || []).forEach(k => { n += (k.photos || []).length; });
     return n;
   }
 
@@ -152,6 +172,7 @@
 
   window.EDL_TEMPLATES = {
     ETATS, ETAT_CLASS, FONCTIONNE, FONCTIONNE_LABEL, TYPES_PIECE, PIECES_DEFAUT,
+    DEFAUTS, GRAVITES, GRAVITE_LABEL, makeDefect,
     makeLine, makeRoom, makeMeter, makeKey, makeDossier, normalize, countPhotos, summary
   };
 })();

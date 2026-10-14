@@ -7,8 +7,9 @@
 
   const holders = d => {
     const out = [];
-    (d.pieces || []).forEach(p => (p.lignes || []).forEach(l => out.push(l)));
+    (d.pieces || []).forEach(p => (p.lignes || []).forEach(l => { out.push(l); (l.defauts || []).forEach(df => out.push(df)); }));
     (d.compteurs || []).forEach(m => out.push(m));
+    (d.cles || []).forEach(k => { if (!Array.isArray(k.photos)) k.photos = []; out.push(k); });
     return out;
   };
 
@@ -98,6 +99,8 @@
       } catch (e) {
         console.warn('Synchronisation :', e);
         if (e.status === 409) {
+          // Conflit « apparent » : si la version du PC est identique à la nôtre, on s'aligne sans rien demander.
+          if (await this._sameAsServer(d)) { this.set('saved', d.server.savedAt); return; }
           this.set('conflict', e.message);
           if (typeof this.onConflict === 'function') this.onConflict(d, e);
         } else if (e.status === 401) {
@@ -107,6 +110,17 @@
           this._retry = setTimeout(() => this.push(this.current && this.current.id === d.id ? this.current : d), 8000);
         }
       }
+    },
+
+    async _sameAsServer(d) {
+      try {
+        const remote = (await API.get(`/api/dossiers/${encodeURIComponent(d.id)}`)).dossier;
+        const strip = x => { const c = JSON.parse(JSON.stringify(x)); delete c.rev; delete c.savedAt; delete c.updatedAt; delete c.server; return JSON.stringify(c); };
+        if (strip(forServer(d)) !== strip(remote)) return false;
+        d.server.rev = remote.rev; d.server.savedAt = remote.savedAt; d.server.dirty = false;
+        await Store.put(d);
+        return true;
+      } catch (e) { return false; }
     },
 
     forServer, fromServer, holders

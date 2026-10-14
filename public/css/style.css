@@ -469,7 +469,7 @@ html[data-layout="phone"] .remote-btn { padding: 0 .55rem; }
 .remote-ok { text-align: center; }
 html[data-layout="phone"] .remote-qr-wrap { flex-direction: column; }
 .dot-pulse { display: inline-block; width: .6rem; height: .6rem; border-radius: 50%; background: #f0b429; animation: pulse 1.2s ease-in-out infinite; vertical-align: middle; }
-@keyframes pulse { 0%, 100% { opacity: .35; transform: scale(.8); } 50% { opacity: 1; transform: scale(1.1); } }
+@keyframes pulse { 0%, 100% { opacity: .35; transform: scale(.8); } 50% { opacity: 1; transform: scale(1); } }
 
 .modal.wait-modal { max-width: 30rem; text-align: center; }
 .wait-phone .wp-ico { font-size: 2.6rem; animation: pulse 1.6s ease-in-out infinite; }
@@ -513,3 +513,85 @@ button.save-state { border: 0; background: transparent; padding: 0; font: inheri
 }
 .linkish { background: none; border: 0; color: var(--primary); text-decoration: underline; cursor: pointer; font: inherit; padding: .4rem; min-height: var(--tap-sm); }
 .remote-base .input { font-size: max(16px, 1rem); }
+
+/* =====================================================================
+   v2.1 – défauts et présentation « lignes »
+   ===================================================================== */
+.view-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .5rem; margin: -.25rem 0 .5rem; }
+.seg.view-toggle button.on, .seg.item-view button.on { background: var(--primary); border-color: var(--primary); }
+
+/* --- puces de gravité --- */
+.seg.compact button { padding: 0 .55rem; font-size: .8rem; min-height: calc(var(--tap-sm) - .25rem); }
+html[data-touch="1"] .seg.compact button { min-height: var(--tap-sm); padding: 0 .65rem; }
+.seg .g-leger.on { background: #8d9a2b; border-color: #8d9a2b; }
+.seg .g-moyen.on { background: var(--usage); border-color: var(--usage); }
+.seg .g-important.on { background: var(--mauvais); border-color: var(--mauvais); }
+
+/* --- défauts --- */
+.defects { display: flex; flex-direction: column; gap: .5rem; margin-top: .6rem; }
+.defect { border: 1px solid #f1d5a6; background: #fffaf1; border-left: 4px solid #f0b429; border-radius: .55rem; padding: .5rem .6rem .6rem; display: flex; flex-direction: column; gap: .45rem; }
+.defect.grav-leger { border-left-color: #8d9a2b; }
+.defect.grav-moyen { border-left-color: var(--usage); }
+.defect.grav-important { border-left-color: var(--mauvais); background: #fff5f4; border-color: #f2c9c4; }
+.defect-head { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; }
+.defect-type { border: 0; background: transparent; font: inherit; font-weight: 700; color: #7a4a00; padding: 0 .2rem; cursor: pointer; min-height: var(--tap-sm); flex: 1 1 auto; text-align: left; }
+.defect.grav-important .defect-type { color: #a52a1f; }
+.defect-head .icon-btn { margin-left: auto; }
+.defect .photos .thumb { width: calc(var(--thumb) * .85); height: calc(var(--thumb) * .85); }
+.btn.add-defect { align-self: flex-start; border-color: #f0c674; color: #7a4a00; background: #fff8e8; }
+
+.defect-picker { display: flex; flex-wrap: wrap; gap: .5rem; margin-bottom: .9rem; }
+.chip { border: 1px solid #f0c674; background: #fff8e8; color: #5c3b00; border-radius: 999px; padding: 0 1rem; min-height: var(--tap); font: inherit; font-size: .95rem; font-weight: 600; cursor: pointer; }
+.chip:active { background: #fde9b8; }
+.defect-other { display: flex; gap: .5rem; }
+.defect-other .input { flex: 1 1 auto; }
+.modal.defect-modal { max-width: 34rem; }
+
+/* --- vue « lignes » --- */
+.lines.rows { display: block; background: var(--card); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; margin-bottom: .75rem; }
+.lines.rows:empty { display: none; }
+.lrow { border-bottom: 1px solid var(--border); }
+.lrow:last-child { border-bottom: 0; }
+.lrow.open { background: #f9fbfd; }
+.lrow-main { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem .5rem; padding: .35rem .5rem; }
+.lrow-toggle { border: 0; background: transparent; width: var(--tap-sm); height: var(--tap-sm); border-radius: 50%; cursor: pointer; color: var(--muted); font-size: 1rem; flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; }
+.chev-r { display: inline-block; transition: transform .15s; }
+.lrow.open .chev-r { transform: rotate(90deg); }
+.lrow-main .line-name { flex: 1 1 8rem; min-width: 7rem; font-size: max(16px, 1rem); padding-top: .3rem; padding-bottom: .3rem; min-height: var(--tap-sm); }
+.lrow-main .seg { flex: 0 0 auto; gap: .25rem; }
+.lrow-info { display: inline-flex; align-items: center; gap: .3rem; border: 0; background: transparent; cursor: pointer; font: inherit; padding: 0 .2rem; min-height: var(--tap-sm); margin-left: auto; }
+.lrow-more { font-size: .78rem; color: var(--primary); font-weight: 600; text-decoration: underline; }
+.pill { font-size: .75rem; font-weight: 700; border-radius: 999px; padding: .1rem .45rem; background: #e9edf2; color: var(--muted); white-space: nowrap; }
+.pill.warn { background: #fff1dc; color: #9a5c00; }
+.lrow-details { display: none; padding: .2rem .75rem .8rem calc(var(--tap-sm) + .75rem); }
+.lrow.open .lrow-details { display: flex; flex-direction: column; gap: .5rem; }
+.lrow-detail-head { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
+.lrow-details textarea.input { margin: 0; }
+html[data-layout="phone"] .lrow-details { padding-left: .75rem; }
+html[data-layout="phone"] .lrow-main .seg.etat { order: 5; }
+html[data-layout="phone"] .lrow-main .seg.fonct { order: 6; }
+html[data-layout="phone"] .lrow-main .lrow-info { order: 3; }
+@media (hover: hover) and (pointer: fine) { .lrow:not(.open):hover { background: #fbfcfe; } .chip:hover { background: #fdf0cf; } }
+
+/* cartes en tablette verticale : la zone défauts occupe toute la largeur */
+html[data-layout="tablet-portrait"] .card.line[data-line] > .defects { grid-column: 1 / -1; }
+
+/* --- animations sans débordement : l'icône ne dépasse jamais sa taille de base --- */
+@keyframes pulse-in { 0%, 100% { opacity: .55; transform: scale(.88); } 50% { opacity: 1; transform: scale(1); } }
+.modal { overflow-x: hidden; }
+.wait-phone .wp-ico {
+  width: 3.6rem; height: 3.6rem; margin: 0 auto .25rem; display: flex; align-items: center; justify-content: center;
+  font-size: 2.6rem; line-height: 1; animation: pulse-in 1.6s ease-in-out infinite; transform-origin: center;
+}
+.dot-pulse { animation-name: pulse-in; }
+
+/* --- clés : photos sous chaque ligne --- */
+.keys { display: flex; flex-direction: column; gap: .6rem; margin-bottom: .6rem; }
+.key-item { border-bottom: 1px dashed var(--border); padding-bottom: .6rem; }
+.key-item:last-child { border-bottom: 0; }
+.key-item .key-row { margin-bottom: .4rem; }
+.key-item .photos .thumb { width: calc(var(--thumb) * .85); height: calc(var(--thumb) * .85); }
+/* téléphone : libellé du défaut + ✕ sur la même ligne, gravité dessous */
+html[data-layout="phone"] .defect-head .icon-btn { order: 2; }
+html[data-layout="phone"] .defect-head .defect-type { order: 1; }
+html[data-layout="phone"] .defect-head .seg.grav { order: 3; width: 100%; }

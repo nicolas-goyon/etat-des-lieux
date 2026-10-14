@@ -192,7 +192,10 @@
       es.addEventListener('request', ev => {
         const d = data(ev);
         if (st.req !== d.req) { st.req = d.req; st.label = d.label || ''; st.sent = []; }
-        try { navigator.vibrate && navigator.vibrate([120, 60, 120]); } catch (e) { /* ignore */ }
+        try {
+          const active = !navigator.userActivation || navigator.userActivation.hasBeenActive;
+          if (active && navigator.vibrate) navigator.vibrate([120, 60, 120]);
+        } catch (e) { /* ignore */ }
         view();
       });
       es.addEventListener('cancel', ev => { if (data(ev).req === st.req) { st.req = null; st.sent = []; view(); } });

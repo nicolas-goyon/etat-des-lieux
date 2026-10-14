@@ -13,8 +13,10 @@ Application d'état des lieux (entrée / sortie) qui tourne **sur votre PC**, da
 - **Code d'accès** vérifié par le serveur (code initial dans `.env`, modifiable ensuite dans l'application).
 - **Pièces en onglets**, modifiables : renommer, déplacer, dupliquer, supprimer, ajouter (modèles : chambre, cuisine, salle de bain, WC, bureau, cave, balcon, parking, pièce vide…).
 - Pour chaque pièce : **éléments** (sol, plafond, murs, plinthes, portes, fenêtres, prises, éclairage, chauffage…) et **meubles & équipements**. Chaque ligne a un **état**, un champ **fonctionne oui/non**, des **remarques** et **plusieurs photos**. Vous pouvez ajouter vos propres lignes.
+- **Défauts** sur chaque élément, en deux touchers : **⚠ + Défaut** propose la liste (trace, tache, rayure, impact, écaillé, fissure, trou, fuite, humidité, moisissure, cassé, décollé, usure, jauni, brûlure, manquant, sale, ne fonctionne pas) ou un libellé libre. Chaque défaut a une **précision** (emplacement, taille), une **gravité** (léger / moyen / important) et **ses propres photos**. Le PDF reprend les défauts sous chaque élément et ajoute un **récapitulatif des défauts** à la fin.
+- **Présentation des éléments** : en **lignes** compactes et dépliables (par défaut en affichage vertical : téléphone, tablette verticale) ou en **cartes** (par défaut en affichage horizontal). Les boutons « ☰ Lignes / ▦ Cartes » en haut de chaque pièce permettent de changer, de même que la fenêtre Affichage.
 - **Compteurs** électricité (HP/HC), gaz, eau froide et eau chaude : numéro, relevés, remarques et photos.
-- **Clés remises**, remarques générales, remarques par pièce.
+- **Clés remises**, avec **photos** de chaque trousseau ou porte-clés. Remarques générales et remarques par pièce.
 - **Export PDF** : le PDF est téléchargé et une copie est **archivée sur le PC**.
 - **Téléphone comme appareil photo** pour le PC ou la tablette, après jumelage par QR code.
 - **Affichage** au choix : téléphone, tablette verticale, tablette horizontale / PC tactile, PC souris. On peut aussi agrandir le texte.
@@ -50,7 +52,7 @@ Activez le **partage de connexion** du téléphone, puis connectez-y le PC (et l
 
 1. Dans un dossier, touchez **📱 Téléphone** en haut de l'écran : un QR code s'affiche.
 2. Le téléphone, connecté au **même Wi-Fi**, scanne le QR code et ouvre la page **« Appareil photo »**. Aucun code d'accès n'est demandé : le QR code contient une clé propre à cette session, qui permet seulement d'envoyer des photos.
-3. Touchez **📷 Photos** sur une ligne du PC ou de la tablette. Le téléphone vibre et affiche « Photo demandée pour Séjour › Sol ». Prenez une ou plusieurs photos : elles arrivent directement sur la bonne ligne.
+3. Touchez **📷 Photos** sur une ligne, un défaut, un compteur ou une clé du PC ou de la tablette. Le téléphone vibre et affiche « Photo demandée pour Séjour › Sol ». Prenez une ou plusieurs photos : elles arrivent directement sur la bonne ligne.
 4. Pour finir, touchez **Terminé** sur le téléphone ou **Terminer** sur le PC. **Utiliser cet appareil** reprend l'appareil photo ou les fichiers du PC.
 
 Si le téléphone n'arrive pas à ouvrir le lien, l'adresse du PC est sans doute mauvaise. Corrigez-la avec « Modifier l'adresse du PC » dans la fenêtre du QR code, ou relancez `demarrer.bat`.

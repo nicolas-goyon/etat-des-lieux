@@ -17,7 +17,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { execFileSync } = require('child_process');
 
-const VERSION = '2.0.0';
+const VERSION = '2.1.0';
 
 // ---------------------------------------------------------------------
 //  Configuration (variables d'environnement, voir .env)
@@ -266,8 +266,12 @@ const photosDir = id => path.join(dossierDir(id), 'photos');
 
 function photoHolders(d) {
   const out = [];
-  (d.pieces || []).forEach(p => (p.lignes || []).forEach(l => out.push(l)));
+  (d.pieces || []).forEach(p => (p.lignes || []).forEach(l => {
+    out.push(l);
+    (Array.isArray(l.defauts) ? l.defauts : []).forEach(df => { if (df && typeof df === 'object') out.push(df); });
+  }));
   (d.compteurs || []).forEach(m => out.push(m));
+  (Array.isArray(d.cles) ? d.cles : []).forEach(k => { if (k && typeof k === 'object') out.push(k); });
   return out;
 }
 
@@ -602,7 +606,7 @@ async function handleApi(req, res, url) {
       if (!ID_RE.test(String(body.dossierId || '')) || !/^[A-Za-z0-9]{4,40}$/.test(String(body.req || ''))) throw new HttpError(400, 'Demande invalide');
       const t = body.target && typeof body.target === 'object' ? body.target : {};
       const target = {};
-      ['kind', 'pieceId', 'lineId', 'meterId'].forEach(k => { if (typeof t[k] === 'string' && /^[A-Za-z0-9_-]{1,40}$/.test(t[k])) target[k] = t[k]; });
+      ['kind', 'pieceId', 'lineId', 'meterId', 'defectId', 'keyId'].forEach(k => { if (typeof t[k] === 'string' && /^[A-Za-z0-9_-]{1,40}$/.test(t[k])) target[k] = t[k]; });
       const rq = { req: body.req, label: String(body.label || '').slice(0, 200), dossierId: body.dossierId, target, ts: Date.now() };
       pair.reqs.set(rq.req, rq);
       pair.current = { req: rq.req, label: rq.label };

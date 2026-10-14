@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '2.0.0';
+  const APP_VERSION = '2.1.0';
   const T = window.EDL_TEMPLATES;
   const $ = sel => document.querySelector(sel);
   const root = () => document.getElementById('app');
@@ -17,7 +17,9 @@
     title: 'État des lieux',
     publicUrl: null,
     defaultCode: false,
-    offline: false
+    offline: false,
+    openRows: new Set(),   // lignes dépliées (vue « lignes »)
+    lastView: null
   };
 
   // =====================================================================
@@ -264,11 +266,15 @@
 </section>
 <section class="card">
   <h3>Clés remises</h3>
+  <p class="muted small">Photographiez chaque trousseau ou porte-clés (📷 sous chaque ligne).</p>
   <div class="keys">${d.cles.map(k => `
-    <div class="key-row" data-key="${U.esc(k.id)}">
-      <input class="input" data-field="type" value="${U.esc(k.type)}" placeholder="Type de clé">
-      <input class="input nb" data-field="nombre" inputmode="numeric" value="${U.esc(k.nombre)}" placeholder="Nb">
-      <button class="icon-btn danger" data-action="key-delete" title="Supprimer">✕</button>
+    <div class="key-item" data-key="${U.esc(k.id)}">
+      <div class="key-row">
+        <input class="input" data-field="type" value="${U.esc(k.type)}" placeholder="Type de clé / porte-clés">
+        <input class="input nb" data-field="nombre" inputmode="numeric" value="${U.esc(k.nombre)}" placeholder="Nb">
+        <button class="icon-btn danger" data-action="key-delete" title="Supprimer">✕</button>
+      </div>
+      ${photosHtml(k.photos, 'Photo des clés')}
     </div>`).join('')}</div>
   <button class="btn small" data-action="key-add">+ Ajouter une clé</button>
 </section>
@@ -282,11 +288,11 @@
     return App.dossier ? API.photoUrl(App.dossier.id, p.id, thumb) : '';
   }
 
-  function photosHtml(photos) {
+  function photosHtml(photos, addLabel) {
     return `<div class="photos">${(photos || []).map((p, i) => `
       <button type="button" class="thumb ${p.up ? '' : 'pending'}" data-action="view-photo" data-index="${i}" data-pid="${U.esc(p.id)}" title="${p.up ? 'Voir la photo' : 'Voir la photo (pas encore envoyée au PC)'}">
         <img src="${U.esc(photoSrc(p, true))}" alt="photo ${i + 1}" loading="lazy"></button>`).join('')}
-      <button type="button" class="thumb add" data-action="add-photos"><span class="cam" aria-hidden="true">📷</span><span>Photos</span></button>
+      <button type="button" class="thumb add" data-action="add-photos" title="${U.esc(addLabel || 'Ajouter des photos')}"><span class="cam" aria-hidden="true">📷</span><span>Photos</span></button>
     </div>`;
   }
 
@@ -319,26 +325,99 @@
 <button class="btn block" data-action="meter-add">+ Ajouter un compteur</button>`;
   }
 
+  /* Présentation des éléments : « lignes » (compact, dépliable) ou « cartes ».
+     Automatique : lignes en affichage vertical (téléphone, tablette verticale), cartes sinon. */
+  function itemView() {
+    const v = U.local.get('edl.itemView') || 'auto';
+    if (v === 'rows' || v === 'cards') return v;
+    const l = document.documentElement.getAttribute('data-layout');
+    return (l === 'phone' || l === 'tablet-portrait') ? 'rows' : 'cards';
+  }
+
+  const ETAT_SHORT = { 'Neuf': 'Neuf', 'Bon état': 'Bon', "État d'usage": 'Usagé', 'Mauvais état': 'Mauvais' };
+
+  function etatSeg(l, short) {
+    return `<div class="seg etat${short ? ' compact' : ''}" role="group" aria-label="État">${T.ETATS.map(e => `<button type="button" class="${T.ETAT_CLASS[e]} ${l.etat === e ? 'on' : ''}" data-action="set-etat" data-value="${U.esc(e)}" title="${U.esc(e)}">${U.esc(short ? ETAT_SHORT[e] : e)}</button>`).join('')}</div>`;
+  }
+  function fonctSeg(l, short) {
+    return `<div class="seg fonct${short ? ' compact' : ''}" role="group" aria-label="Fonctionne">${T.FONCTIONNE.map(([v, lab]) => `<button type="button" class="f-${v} ${l.fonctionne === v ? 'on' : ''}" data-action="set-fonctionne" data-value="${v}" title="Fonctionne : ${lab}">${short && v === 'na' ? '—' : lab}</button>`).join('')}</div>`;
+  }
+  function lineTools() {
+    return `<div class="line-tools">
+      <button class="icon-btn" data-action="line-up" title="Monter" aria-label="Monter">↑</button>
+      <button class="icon-btn" data-action="line-down" title="Descendre" aria-label="Descendre">↓</button>
+      <button class="icon-btn danger" data-action="line-delete" title="Supprimer la ligne" aria-label="Supprimer la ligne">✕</button>
+    </div>`;
+  }
+
+  function defectHtml(df) {
+    return `
+<div class="defect grav-${df.gravite || 'none'}" data-defect="${U.esc(df.id)}">
+  <div class="defect-head">
+    <button type="button" class="defect-type" data-action="defect-rename" title="Changer le libellé">⚠ ${U.esc(df.type)}</button>
+    <div class="seg grav compact" role="group" aria-label="Gravité">${T.GRAVITES.map(([v, lab]) => `<button type="button" class="g-${v} ${df.gravite === v ? 'on' : ''}" data-action="set-gravite" data-value="${v}">${lab}</button>`).join('')}</div>
+    <button class="icon-btn danger" data-action="defect-delete" title="Supprimer ce défaut" aria-label="Supprimer ce défaut">✕</button>
+  </div>
+  <input class="input defect-precision" data-field="precision" value="${U.esc(df.precision)}" placeholder="Emplacement, taille… (ex. angle nord, 10 cm)">
+  ${photosHtml(df.photos, 'Photo du défaut')}
+</div>`;
+  }
+
+  function defectsHtml(l) {
+    return `<div class="defects">
+  ${(l.defauts || []).map(defectHtml).join('')}
+  <button type="button" class="btn small add-defect" data-action="defect-add">⚠ + Défaut</button>
+</div>`;
+  }
+
   function lineHtml(l) {
+    return itemView() === 'rows' ? lineRowHtml(l) : lineCardHtml(l);
+  }
+
+  function lineCardHtml(l) {
     return `
 <article class="card line" data-line="${U.esc(l.id)}">
   <div class="line-head">
     <input class="input line-name" data-field="nom" value="${U.esc(l.nom)}" placeholder="Nom de l'élément">
-    <div class="line-tools">
-      <button class="icon-btn" data-action="line-up" title="Monter">↑</button>
-      <button class="icon-btn" data-action="line-down" title="Descendre">↓</button>
-      <button class="icon-btn danger" data-action="line-delete" title="Supprimer">✕</button>
-    </div>
+    ${lineTools()}
   </div>
-  <div class="row row-etat"><span class="lbl">État</span>
-    <div class="seg etat">${T.ETATS.map(e => `<button type="button" class="${T.ETAT_CLASS[e]} ${l.etat === e ? 'on' : ''}" data-action="set-etat" data-value="${U.esc(e)}">${U.esc(e)}</button>`).join('')}</div>
-  </div>
-  <div class="row row-fonct"><span class="lbl">Fonctionne</span>
-    <div class="seg fonct">${T.FONCTIONNE.map(([v, lab]) => `<button type="button" class="f-${v} ${l.fonctionne === v ? 'on' : ''}" data-action="set-fonctionne" data-value="${v}">${lab}</button>`).join('')}</div>
-  </div>
-  <textarea class="input" rows="2" data-field="remarques" placeholder="Remarques, défauts constatés, nombre…">${U.esc(l.remarques)}</textarea>
+  <div class="row row-etat"><span class="lbl">État</span>${etatSeg(l, false)}</div>
+  <div class="row row-fonct"><span class="lbl">Fonctionne</span>${fonctSeg(l, false)}</div>
+  <textarea class="input" rows="2" data-field="remarques" placeholder="Remarques…">${U.esc(l.remarques)}</textarea>
   ${photosHtml(l.photos)}
+  ${defectsHtml(l)}
 </article>`;
+  }
+
+  function rowInfo(l) {
+    const nd = (l.defauts || []).length;
+    const np = (l.photos || []).length + (l.defauts || []).reduce((s, d) => s + d.photos.length, 0);
+    return `${nd ? `<span class="pill warn" title="${nd} défaut(s)">⚠ ${nd}</span>` : ''}${np ? `<span class="pill" title="${np} photo(s)">📷 ${np}</span>` : ''}${l.remarques ? '<span class="pill" title="Remarque saisie">💬</span>' : ''}`;
+  }
+
+  function lineRowHtml(l) {
+    const open = App.openRows.has(l.id);
+    return `
+<article class="lrow ${open ? 'open' : ''}" data-line="${U.esc(l.id)}">
+  <div class="lrow-main">
+    <button type="button" class="lrow-toggle" data-action="row-toggle" aria-expanded="${open}" title="Détails : remarques, photos, défauts"><span class="chev-r" aria-hidden="true">▸</span></button>
+    <input class="input line-name" data-field="nom" value="${U.esc(l.nom)}" placeholder="Nom de l'élément">
+    ${etatSeg(l, true)}
+    ${fonctSeg(l, true)}
+    <button type="button" class="lrow-info" data-action="row-toggle" title="Détails">${rowInfo(l)}<span class="lrow-more">${open ? 'Fermer' : 'Détails'}</span></button>
+  </div>
+  <div class="lrow-details">
+    <div class="lrow-detail-head"><span class="muted small">Remarques, photos et défauts</span>${lineTools()}</div>
+    <textarea class="input" rows="2" data-field="remarques" placeholder="Remarques…">${U.esc(l.remarques)}</textarea>
+    ${photosHtml(l.photos)}
+    ${defectsHtml(l)}
+  </div>
+</article>`;
+  }
+
+  function refreshRowInfo(lineEl, l) {
+    const info = lineEl && lineEl.querySelector('.lrow-info');
+    if (info) info.innerHTML = `${rowInfo(l)}<span class="lrow-more">${App.openRows.has(l.id) ? 'Fermer' : 'Détails'}</span>`;
   }
 
   function roomTab(room) {
@@ -356,14 +435,21 @@
     <button class="btn small danger" data-action="room-delete">Supprimer</button>
   </div>
 </div>
+<div class="view-bar">
+  <div class="seg view-toggle" role="group" aria-label="Présentation">
+    <button type="button" class="${itemView() === 'rows' ? 'on' : ''}" data-action="set-view" data-value="rows">☰ Lignes</button>
+    <button type="button" class="${itemView() === 'cards' ? 'on' : ''}" data-action="set-view" data-value="cards">▦ Cartes</button>
+  </div>
+  ${itemView() === 'rows' ? '<button type="button" class="btn small" data-action="rows-all">Tout déplier / replier</button>' : ''}
+</div>
 <section>
   <h3 class="sub">Éléments de la pièce <small>sol, plafond, murs, menuiseries…</small></h3>
-  <div class="lines">${els.map(lineHtml).join('')}</div>
+  <div class="lines ${itemView()}">${els.map(lineHtml).join('')}</div>
   <button class="btn block" data-action="line-add" data-cat="element">+ Ajouter un élément</button>
 </section>
 <section>
   <h3 class="sub">Meubles & équipements <small>état et fonctionnement</small></h3>
-  <div class="lines">${meubles.map(lineHtml).join('')}</div>
+  <div class="lines ${itemView()}">${meubles.map(lineHtml).join('')}</div>
   <button class="btn block" data-action="line-add" data-cat="meuble">+ Ajouter un meuble / équipement</button>
 </section>
 <section class="card" data-scope="room">
@@ -393,6 +479,7 @@
   }
 
   function afterRender() {
+    App.lastView = itemView();
     const active = document.querySelector('#tabs .tab.on');
     if (active && active.parentElement) {
       const nav = active.parentElement;
@@ -406,6 +493,13 @@
     }
     const auto = document.querySelector('[autofocus]');
     if (auto && !('ontouchstart' in window)) setTimeout(() => auto.focus(), 30);
+  }
+
+  /* Si la présentation des éléments change (rotation, choix d'affichage), on réaffiche la pièce. */
+  function refreshView(force) {
+    const v = itemView();
+    if ((force || v !== App.lastView) && App.dossier && App.tab.startsWith('piece:')) renderTabOnly();
+    App.lastView = v;
   }
 
   function updateHeader() {
@@ -515,7 +609,13 @@
   function resolveTarget(el) {
     const d = App.dossier; if (!d) return null;
     const lineEl = el.closest('[data-line]');
-    if (lineEl) { const r = currentRoom(); return r ? r.lignes.find(l => l.id === lineEl.dataset.line) : null; }
+    if (lineEl) {
+      const r = currentRoom();
+      const line = r ? r.lignes.find(l => l.id === lineEl.dataset.line) : null;
+      const defEl = el.closest('[data-defect]');
+      if (defEl && line) return (line.defauts || []).find(x => x.id === defEl.dataset.defect) || null;
+      return line;
+    }
     const meterEl = el.closest('[data-meter]');
     if (meterEl) return d.compteurs.find(m => m.id === meterEl.dataset.meter) || null;
     const keyEl = el.closest('[data-key]');
@@ -532,7 +632,9 @@
     const target = resolveTarget(el);
     if (!target) return;
     const val = el.type === 'checkbox' ? el.checked : el.value;
+    if (U.getPath(target, f) === val) return; // rien n'a changé (ex. « change » en quittant un champ) : pas d'enregistrement
     U.setPath(target, f, val);
+    if (f === 'remarques' && el.closest('.lrow')) refreshRowInfo(el.closest('.lrow'), target);
     if (target === App.dossier && (f === 'adresse' || f === 'type' || f === 'date')) updateHeader();
     if (el.classList.contains('line-name') && el.closest('[data-line]') === null) { /* compteur : rien de plus */ }
     scheduleSave();
@@ -585,7 +687,7 @@
         if (!room) break;
         const copy = U.clone(room);
         copy.id = U.uid(); copy.nom = room.nom + ' (copie)';
-        copy.lignes.forEach(l => { l.id = U.uid(); }); // les photos sont partagées (mêmes fichiers sur le PC)
+        copy.lignes.forEach(l => { l.id = U.uid(); (l.defauts || []).forEach(df => { df.id = U.uid(); }); }); // photos partagées (mêmes fichiers sur le PC)
         d.pieces.splice(d.pieces.indexOf(room) + 1, 0, copy);
         App.tab = 'piece:' + copy.id;
         await save(); render();
@@ -631,7 +733,8 @@
       }
       case 'line-delete': {
         const l = resolveTarget(btn); if (!l || !room) break;
-        if ((l.photos.length || l.remarques) && !(await Modal.confirm(`Supprimer la ligne « ${l.nom || 'sans nom'} » (${l.photos.length} photo${l.photos.length > 1 ? 's' : ''}) ?`, { ok: 'Supprimer', danger: true }))) break;
+        const nd = (l.defauts || []).length;
+        if ((l.photos.length || l.remarques || nd) && !(await Modal.confirm(`Supprimer la ligne « ${l.nom || 'sans nom'} » (${l.photos.length} photo${l.photos.length > 1 ? 's' : ''}${nd ? `, ${nd} défaut${nd > 1 ? 's' : ''}` : ''}) ?`, { ok: 'Supprimer', danger: true }))) break;
         room.lignes.splice(room.lignes.indexOf(l), 1);
         await save(); renderTabOnly();
         break;
@@ -643,6 +746,65 @@
         btn.parentElement.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.value === l.etat));
         updateTabBadges();
         scheduleSave();
+        break;
+      }
+      case 'set-gravite': {
+        const df = resolveTarget(btn); if (!df) break;
+        const v = btn.dataset.value;
+        df.gravite = df.gravite === v ? '' : v;
+        btn.parentElement.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.value === df.gravite));
+        const box = btn.closest('.defect'); if (box) box.className = `defect grav-${df.gravite || 'none'}`;
+        scheduleSave();
+        break;
+      }
+      case 'defect-add': {
+        const l = resolveTarget(btn); if (!l || !room) break;
+        const type = await pickDefect(l);
+        if (!type) break;
+        const df = T.makeDefect(type);
+        l.defauts = l.defauts || [];
+        l.defauts.push(df);
+        App.openRows.add(l.id);
+        await save(); renderTabOnly();
+        const inp = document.querySelector(`[data-defect="${df.id}"] .defect-precision`);
+        if (inp) { inp.scrollIntoView({ block: 'center', behavior: 'smooth' }); if (!('ontouchstart' in window)) inp.focus(); }
+        break;
+      }
+      case 'defect-rename': {
+        const df = resolveTarget(btn); if (!df) break;
+        const v = await Modal.prompt('Libellé du défaut', df.type, { ok: 'Valider' });
+        if (v != null && v.trim()) { df.type = v.trim(); await save(); renderTabOnly(); }
+        break;
+      }
+      case 'defect-delete': {
+        const df = resolveTarget(btn); if (!df || !room) break;
+        const line = room.lignes.find(l => (l.defauts || []).includes(df)); if (!line) break;
+        if ((df.photos.length || df.precision) && !(await Modal.confirm(`Supprimer le défaut « ${df.type} »${df.photos.length ? ` et ses ${df.photos.length} photo(s)` : ''} ?`, { ok: 'Supprimer', danger: true }))) break;
+        line.defauts.splice(line.defauts.indexOf(df), 1);
+        await save(); renderTabOnly();
+        break;
+      }
+      case 'row-toggle': {
+        const art = btn.closest('.lrow'); if (!art) break;
+        const id = art.dataset.line;
+        const open = !App.openRows.has(id);
+        if (open) App.openRows.add(id); else App.openRows.delete(id);
+        art.classList.toggle('open', open);
+        art.querySelectorAll('[data-action="row-toggle"][aria-expanded]').forEach(b => b.setAttribute('aria-expanded', String(open)));
+        const l = resolveTarget(btn); if (l) refreshRowInfo(art, l);
+        break;
+      }
+      case 'rows-all': {
+        if (!room) break;
+        const allOpen = room.lignes.every(l => App.openRows.has(l.id));
+        room.lignes.forEach(l => { if (allOpen) App.openRows.delete(l.id); else App.openRows.add(l.id); });
+        renderTabOnly();
+        break;
+      }
+      case 'set-view': {
+        U.local.set('edl.itemView', btn.dataset.value);
+        App.lastView = itemView();
+        renderTabOnly();
         break;
       }
       case 'set-fonctionne': {
@@ -709,12 +871,13 @@
       case 'key-add': {
         d.cles.push(T.makeKey('', ''));
         await save(); renderTabOnly();
-        const rows = document.querySelectorAll('.key-row');
+        const rows = document.querySelectorAll('.key-item');
         const last = rows[rows.length - 1]; if (last) last.querySelector('input').focus();
         break;
       }
       case 'key-delete': {
         const k = resolveTarget(btn); if (!k) break;
+        if ((k.photos || []).length && !(await Modal.confirm(`Supprimer « ${k.type || 'clé'} » et ses ${k.photos.length} photo(s) ?`, { ok: 'Supprimer', danger: true }))) break;
         d.cles.splice(d.cles.indexOf(k), 1);
         await save(); renderTabOnly();
         break;
@@ -814,19 +977,29 @@
   // =====================================================================
   function photoLabel(btn, holder) {
     if (btn.closest('[data-meter]')) return `Compteur › ${holder.type || 'compteur'}`;
+    if (btn.closest('[data-key]')) return `Clés › ${holder.type || 'clé'}`;
     const r = currentRoom();
+    const lineEl = btn.closest('[data-line]');
+    const line = r && lineEl ? r.lignes.find(l => l.id === lineEl.dataset.line) : null;
+    if (btn.closest('[data-defect]')) return `${r ? r.nom : 'Pièce'} › ${line ? line.nom || 'élément' : ''} › ${holder.type || 'défaut'}`;
     return `${r ? r.nom : 'Pièce'} › ${holder.nom || 'élément'}`;
   }
   function photoTarget(btn, holder) {
     if (btn.closest('[data-meter]')) return { kind: 'meter', meterId: holder.id };
+    if (btn.closest('[data-key]')) return { kind: 'key', keyId: holder.id };
     const r = currentRoom();
+    const lineEl = btn.closest('[data-line]');
+    if (btn.closest('[data-defect]')) return { kind: 'defect', pieceId: r ? r.id : '', lineId: lineEl ? lineEl.dataset.line : '', defectId: holder.id };
     return { kind: 'line', pieceId: r ? r.id : '', lineId: holder.id };
   }
   function findHolder(d, target) {
     if (!d || !target) return null;
     if (target.kind === 'meter') return d.compteurs.find(m => m.id === target.meterId) || null;
+    if (target.kind === 'key') return (d.cles || []).find(k => k.id === target.keyId) || null;
     const r = d.pieces.find(p => p.id === target.pieceId);
-    return r ? r.lignes.find(l => l.id === target.lineId) || null : null;
+    const line = r ? r.lignes.find(l => l.id === target.lineId) || null : null;
+    if (target.kind === 'defect') return line ? (line.defauts || []).find(x => x.id === target.defectId) || null : null;
+    return line;
   }
 
   function isLocalAddress(host) {
@@ -1016,6 +1189,33 @@
     });
   }
 
+  /* Choix rapide du type de défaut (puces) ; « Autre… » pour un libellé libre. */
+  function pickDefect(line) {
+    return new Promise(res => {
+      const el = Modal.open(`<h3>Ajouter un défaut${line && line.nom ? ' – ' + U.esc(line.nom) : ''}</h3>
+<div class="defect-picker">
+  ${T.DEFAUTS.map(t => `<button type="button" class="chip" data-pick="${U.esc(t)}">${U.esc(t)}</button>`).join('')}
+</div>
+<form class="defect-other">
+  <input class="input" name="other" placeholder="Autre défaut (ex. joint noirci)" autocomplete="off">
+  <button class="btn primary" type="submit">Ajouter</button>
+</form>
+<div class="modal-actions"><button type="button" class="btn" data-pick-cancel>Annuler</button></div>`, { cls: 'defect-modal' });
+      let done = false;
+      const finish = v => { if (done) return; done = true; Modal.close(el); res(v); };
+      el.addEventListener('click', e => {
+        const b = e.target.closest('button[data-pick]');
+        if (b) { finish(b.dataset.pick); return; }
+        if (e.target.closest('[data-pick-cancel]') || e.target === el) finish(null);
+      });
+      el.querySelector('form').addEventListener('submit', e => {
+        e.preventDefault();
+        const v = e.target.elements.other.value.trim();
+        if (v) finish(v);
+      });
+    });
+  }
+
   // =====================================================================
   //  Choix de l'affichage
   // =====================================================================
@@ -1038,6 +1238,11 @@
     <span class="mode-ico">${MODE_ICONS[m.id] || ''}</span>
     <span class="mode-txt"><strong>${U.esc(m.label)}</strong><small>${U.esc(m.desc)}</small></span></button>`).join('')}
 </div>
+<h4 class="mt">Présentation des éléments dans les pièces</h4>
+<div class="seg item-view" role="radiogroup" aria-label="Présentation des éléments">
+  ${[['auto', 'Automatique'], ['rows', '☰ Lignes'], ['cards', '▦ Cartes']].map(([v, lab]) => `<button type="button" class="${(U.local.get('edl.itemView') || 'auto') === v ? 'on' : ''}" data-view="${v}" role="radio">${lab}</button>`).join('')}
+</div>
+<p class="muted small">Automatique : lignes compactes en affichage vertical, cartes en affichage horizontal.</p>
 <h4 class="mt">Taille du texte</h4>
 <div class="seg text-size" role="radiogroup" aria-label="Taille du texte">
   ${Display.TEXTS.map(t => `<button type="button" class="${text === t.id ? 'on' : ''}" data-text="${t.id}" aria-checked="${text === t.id}" role="radio">${U.esc(t.label)}</button>`).join('')}
@@ -1047,8 +1252,11 @@
     const el = Modal.open(draw(), { cls: 'display-modal' });
     const modal = el.querySelector('.modal');
     el.addEventListener('click', e => {
-      const m = e.target.closest('[data-mode]');
-      const t = e.target.closest('[data-text]');
+      // (boutons uniquement : <html> porte lui-même des attributs data-text / data-layout)
+      const m = e.target.closest('button[data-mode]');
+      const t = e.target.closest('button[data-text]');
+      const iv = e.target.closest('button[data-view]');
+      if (iv) { U.local.set('edl.itemView', iv.dataset.view); modal.innerHTML = draw(); refreshView(true); return; }
       if (m) { Display.setMode(m.dataset.mode); modal.innerHTML = draw(); return; }
       if (t) { Display.setText(t.dataset.text); modal.innerHTML = draw(); return; }
       if (e.target.closest('[data-m="close"]')) Modal.close(el);
@@ -1406,7 +1614,7 @@
     r.addEventListener('keydown', e => {
       if (e.key === 'Enter' && e.target.classList && e.target.classList.contains('line-name')) { e.preventDefault(); e.target.blur(); }
     });
-    window.addEventListener('edl:layout', () => afterRender());
+    window.addEventListener('edl:layout', () => { refreshView(false); afterRender(); });
     window.addEventListener('beforeunload', e => {
       const d = App.dossier;
       if (d && d.server && d.server.dirty && Sync.state !== 'offline') { Sync.push(d); e.preventDefault(); e.returnValue = ''; }

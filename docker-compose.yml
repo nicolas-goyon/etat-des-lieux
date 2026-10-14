@@ -9,7 +9,7 @@ name: etat-des-lieux
 services:
   app:
     build: .
-    image: etat-des-lieux:2.0.0
+    image: etat-des-lieux:2.1.0
     container_name: etat-des-lieux
     # Redémarre automatiquement avec Docker Desktop (donc après un redémarrage du PC,
     # si Docker Desktop est réglé pour se lancer à l'ouverture de session).

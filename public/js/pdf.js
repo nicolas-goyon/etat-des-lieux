@@ -11,6 +11,8 @@
     'Neuf': [46, 125, 50], 'Bon état': [67, 160, 71], "État d'usage": [230, 110, 0], 'Mauvais état': [198, 40, 40]
   };
   const FONCTIONNE = { oui: 'Oui', non: 'Non', na: '—' };
+  const GRAVITE = { leger: 'Léger', moyen: 'Moyen', important: 'Important' };
+  const GRAV_COLORS = { leger: [120, 132, 30], moyen: [230, 110, 0], important: [198, 40, 40] };
 
   function build(d, jsPDFCtor) {
     const doc = new jsPDFCtor({ orientation: 'portrait', unit: 'mm', format: 'a4', compress: true });
@@ -155,6 +157,7 @@
         });
         y += rowH;
         if (row.photos && row.photos.length) { y += 1; photoGrid(row.photos, row.photoCaption); }
+        (row.photoGroups || []).forEach(g => { if (g.photos && g.photos.length) { y += 1; photoGrid(g.photos, g.caption); } });
       });
       y += 3;
     }
@@ -195,21 +198,27 @@
     }
 
     // ---------- Clés ----------
-    const cles = (d.cles || []).filter(k => k.type || k.nombre);
+    const cles = (d.cles || []).filter(k => k.type || k.nombre || (k.photos || []).length);
     if (cles.length) {
       sectionTitle('Clés remises');
       table([{ title: 'Type', w: CW - 30 }, { title: 'Nombre', w: 30 }],
-        cles.map(k => ({ cells: [k.type || '—', k.nombre || '—'] })));
+        cles.map(k => ({ cells: [k.type || '—', k.nombre || '—'], photos: k.photos, photoCaption: `Photos – ${k.type || 'clés'}` })));
     }
 
     // ---------- Pièces ----------
     (d.pieces || []).forEach(p => {
       sectionTitle(`Pièce : ${p.nom || 'Pièce'}`);
       const cols = [{ title: 'Élément', w: 46 }, { title: 'État', w: 28 }, { title: 'Fonctionne', w: 22 }, { title: 'Remarques', w: CW - 96 }];
-      const toRow = l => ({
-        cells: [{ text: l.nom || '—', bold: true }, etatCell(l.etat), FONCTIONNE[l.fonctionne] || '—', l.remarques || ''],
-        photos: l.photos, photoCaption: `Photos – ${l.nom || 'élément'}`
-      });
+      const toRow = l => {
+        const defs = (l.defauts || []);
+        const defTxt = defs.map(df => `• ${df.type}${df.gravite ? ' (' + (GRAVITE[df.gravite] || df.gravite) + ')' : ''}${df.precision ? ' : ' + df.precision : ''}${df.photos && df.photos.length ? ` [${df.photos.length} photo${df.photos.length > 1 ? 's' : ''}]` : ''}`).join('\n');
+        const rem = [l.remarques || '', defs.length ? `Défauts constatés :\n${defTxt}` : ''].filter(Boolean).join('\n');
+        return {
+          cells: [{ text: l.nom || '—', bold: true }, etatCell(l.etat), FONCTIONNE[l.fonctionne] || '—', rem],
+          photos: l.photos, photoCaption: `Photos – ${l.nom || 'élément'}`,
+          photoGroups: defs.map(df => ({ photos: df.photos, caption: `Défaut – ${l.nom || 'élément'} : ${df.type}${df.precision ? ' (' + df.precision + ')' : ''}` }))
+        };
+      };
       const els = (p.lignes || []).filter(l => l.cat !== 'meuble');
       const meubles = (p.lignes || []).filter(l => l.cat === 'meuble');
       if (els.length) { subTitle('Éléments de la pièce'); table(cols, els.map(toRow)); }
@@ -217,6 +226,19 @@
       if (!els.length && !meubles.length) paragraph('Aucune ligne.', { color: MUTED });
       if (p.remarques) { subTitle('Remarques sur la pièce'); paragraph(p.remarques); }
     });
+
+    // ---------- Récapitulatif des défauts ----------
+    const recap = [];
+    (d.pieces || []).forEach(p => (p.lignes || []).forEach(l => (l.defauts || []).forEach(df => recap.push({ p, l, df }))));
+    if (recap.length) {
+      sectionTitle(`Récapitulatif des défauts constatés (${recap.length})`);
+      table(
+        [{ title: 'Pièce', w: 32 }, { title: 'Élément', w: 36 }, { title: 'Défaut', w: 34 }, { title: 'Gravité', w: 22 }, { title: 'Précision', w: CW - 140 }, { title: 'Photos', w: 16 }],
+        recap.map(({ p, l, df }) => ({ cells: [p.nom || '—', { text: l.nom || '—', bold: true }, { text: df.type, bold: true },
+          df.gravite ? { text: GRAVITE[df.gravite] || df.gravite, color: GRAV_COLORS[df.gravite] || INK, bold: true } : { text: '—', color: MUTED },
+          df.precision || '', String((df.photos || []).length)] }))
+      );
+    }
 
     // ---------- Pied de page ----------
     const n = doc.internal.getNumberOfPages();
